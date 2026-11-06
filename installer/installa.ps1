@@ -109,6 +109,18 @@ Ok $python
 # ---------------------------------------------------------- 2. ambiente .venv
 Passo 2 "Ambiente Python del programma (.venv)"
 $venvPy = Join-Path $Root ".venv\Scripts\python.exe"
+if (Test-Path $venvPy) {
+    # Un .venv creato con un Python che non esiste più (o non è visibile) non parte: lo ricreo.
+    $okVenv = $false
+    try {
+        $out = & $venvPy -c "import sys; print(sys.version_info[:2] == (3, 12))" 2>$null
+        $okVenv = ($LASTEXITCODE -eq 0 -and "$out".Trim() -eq "True")
+    } catch {}
+    if (-not $okVenv) {
+        Avviso "l'ambiente .venv esistente non funziona: lo ricreo"
+        Remove-Item (Join-Path $Root ".venv") -Recurse -Force
+    }
+}
 if (-not (Test-Path $venvPy)) {
     & $python -m venv (Join-Path $Root ".venv")
     if ($LASTEXITCODE -ne 0) { Fallito "non riesco a creare l'ambiente .venv." }
