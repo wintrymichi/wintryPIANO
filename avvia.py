@@ -16,12 +16,45 @@ REQUIRED = ("PySide6", "mido", "rtmidi", "sounddevice", "soundfile", "numpy", "t
 
 
 def _venv_python() -> Path | None:
-    scripts = HERE / ".venv" / ("Scripts" if os.name == "nt" else "bin")
-    for name in ("pythonw.exe", "python.exe", "python3", "python"):
+    """Python dell'ambiente .venv. Usa pythonw.exe (senza console) solo se il
+    Python di base lo possiede: il pacchetto zip di Python non lo include."""
+    venv = HERE / ".venv"
+    scripts = venv / ("Scripts" if os.name == "nt" else "bin")
+    names = ["python.exe", "python3", "python"]
+    if os.name == "nt" and _base_has_pythonw(venv):
+        names.insert(0, "pythonw.exe")
+    for name in names:
         p = scripts / name
         if p.exists():
             return p
     return None
+
+
+def _base_has_pythonw(venv: Path) -> bool:
+    try:
+        for line in (venv / "pyvenv.cfg").read_text(encoding="utf-8").splitlines():
+            key, _, value = line.partition("=")
+            if key.strip().lower() == "home":
+                return (Path(value.strip()) / "pythonw.exe").exists()
+    except OSError:
+        pass
+    return False
+
+
+def _hide_own_console() -> None:
+    """Se Windows ha aperto una console solo per noi (doppio clic), la chiude.
+    Se il programma è stato avviato da un terminale, la console resta."""
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        procs = (ctypes.c_uint * 4)()
+        if kernel32.GetConsoleWindow() and kernel32.GetConsoleProcessList(procs, 4) <= 1:
+            kernel32.FreeConsole()
+    except Exception:
+        pass
 
 
 def _in_venv() -> bool:
@@ -57,6 +90,7 @@ def main() -> int:
             _alert("Mancano alcune librerie (" + ", ".join(missing) + ").\n"
                    "Esegui installa.bat nella cartella di Wintry Piano e poi riavvia.")
             return 1
+    _hide_own_console()
     sys.path.insert(0, str(HERE))
     from wintrypiano.app import main as app_main
 

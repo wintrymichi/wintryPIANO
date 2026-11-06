@@ -28,10 +28,18 @@ jobs:
           python-version: "3.12"
       - name: Esegui l'installer (solo il suono leggero, Python e ffmpeg da zip come su un PC senza winget)
         shell: pwsh
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File installer\installa.ps1 -SoloYDP -FFmpegZip -PythonNuGet -SenzaCollegamento
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File installer\installa.ps1 -SoloYDP -FFmpegZip -PythonNuGet
       - name: Controlla il risultato
         shell: pwsh
         run: |
+          $lnk = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path ([Environment]::GetFolderPath("Desktop")) "Wintry Piano.lnk"))
+          Write-Host "collegamento:" $lnk.TargetPath $lnk.Arguments
+          if (-not (Test-Path $lnk.TargetPath)) { throw "il collegamento punta a un file che non esiste" }
+          $p = Start-Process -FilePath $lnk.TargetPath -ArgumentList ($lnk.Arguments + " --demo") -WorkingDirectory $lnk.WorkingDirectory -PassThru
+          Start-Sleep -Seconds 15
+          if ($p.HasExited) { Get-Content (Join-Path $env:APPDATA "WintryPiano\wintrypiano.log") -ErrorAction SilentlyContinue; throw "il programma si e' chiuso subito (codice $($p.ExitCode))" }
+          Stop-Process -Id $p.Id -Force
+          Get-Content (Join-Path $env:APPDATA "WintryPiano\wintrypiano.log")
           .venv\Scripts\python.exe -c "import sys; print(sys.version, sys.base_prefix); assert 'WintryPiano' in sys.base_prefix"
           .venv\Scripts\python.exe -c "import PySide6, mido, rtmidi, sounddevice, soundfile, tinysoundfont; print('ok')"
           $sf = Join-Path $env:APPDATA "WintryPiano\soundfonts\YDP-GrandPiano.sf2"

@@ -193,7 +193,15 @@ if ($SenzaCollegamento) {
     try {
         $shell = New-Object -ComObject WScript.Shell
         $lnk = $shell.CreateShortcut((Join-Path ([Environment]::GetFolderPath("Desktop")) "Wintry Piano.lnk"))
-        $lnk.TargetPath = Join-Path $Root ".venv\Scripts\pythonw.exe"
+        # Il pacchetto zip di Python non ha pythonw.exe: in quel caso uso python.exe
+        # a finestra ridotta, e avvia.py chiude subito la console.
+        $baseHome = (Get-Content (Join-Path $Root ".venv\pyvenv.cfg") | Where-Object { $_ -match '^\s*home\s*=' } | Select-Object -First 1) -replace '^\s*home\s*=\s*', ''
+        if ($baseHome -and (Test-Path (Join-Path $baseHome.Trim() "pythonw.exe"))) {
+            $lnk.TargetPath = Join-Path $Root ".venv\Scripts\pythonw.exe"
+        } else {
+            $lnk.TargetPath = Join-Path $Root ".venv\Scripts\python.exe"
+            $lnk.WindowStyle = 7
+        }
         $lnk.Arguments = '"' + (Join-Path $Root "avvia.py") + '"'
         $lnk.WorkingDirectory = $Root
         $lnk.Description = "wintry piano"
