@@ -10,3 +10,4 @@ dist/
 assets/soundfonts/*.sf2
 assets/soundfonts/*.sf3
 assets/soundfonts/*.txt
+ffmpeg/

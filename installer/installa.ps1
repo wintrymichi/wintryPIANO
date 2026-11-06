@@ -1,6 +1,6 @@
 ﻿# Installer di Wintry Piano per Windows 10/11.
 # Uso: doppio clic su installa.bat (oppure: powershell -ExecutionPolicy Bypass -File installer\installa.ps1)
-# Opzioni: -SoloYDP (scarica solo il pianoforte leggero)  -SenzaFFmpeg  -SenzaCollegamento
+# Opzioni: -SoloYDP (scarica solo il pianoforte leggero)  -SenzaFFmpeg  -SenzaCollegamento  -FFmpegZip
 
 param(
     [switch]$SoloYDP,
@@ -94,15 +94,49 @@ Ok "librerie installate"
 
 # ------------------------------------------------------------------ 4. ffmpeg
 Passo 4 "ffmpeg (per esportare in MP3)"
+function Installa-FFmpegZip {
+    $dest = Join-Path $Root "ffmpeg"
+    $urls = @(
+        "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip",
+        "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
+    )
+    foreach ($url in $urls) {
+        $zip = Join-Path $env:TEMP "wintry-ffmpeg.zip"
+        $tmp = Join-Path $env:TEMP "wintry-ffmpeg"
+        try {
+            Write-Host "      Scarico ffmpeg da $url ..."
+            Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
+            if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }
+            Expand-Archive -Path $zip -DestinationPath $tmp -Force
+            $exe = Get-ChildItem -Path $tmp -Recurse -Filter ffmpeg.exe | Select-Object -First 1
+            if (-not $exe) { throw "ffmpeg.exe non trovato nell'archivio" }
+            if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
+            New-Item -ItemType Directory -Path (Join-Path $dest "bin") -Force | Out-Null
+            Copy-Item $exe.FullName (Join-Path $dest "bin\ffmpeg.exe")
+            $lic = Get-ChildItem -Path $tmp -Recurse -Filter "LICENSE*" | Select-Object -First 1
+            if ($lic) { Copy-Item $lic.FullName (Join-Path $dest "LICENSE.txt") }
+            Remove-Item $zip, $tmp -Recurse -Force -ErrorAction SilentlyContinue
+            return $true
+        } catch {
+            Avviso "download da $url non riuscito"
+        }
+    }
+    return $false
+}
+
+$ffLocale = Join-Path $Root "ffmpeg\bin\ffmpeg.exe"
 if ($SenzaFFmpeg) {
     Avviso "saltato su richiesta: potrai esportare solo in WAV"
-} elseif (Get-Command ffmpeg -ErrorAction SilentlyContinue) {
+} elseif ((Test-Path $ffLocale) -or ((-not $FFmpegZip) -and (Get-Command ffmpeg -ErrorAction SilentlyContinue))) {
     Ok "già presente"
-} elseif (Get-Command winget -ErrorAction SilentlyContinue) {
-    & winget install -e --id Gyan.FFmpeg --silent --accept-package-agreements --accept-source-agreements | Out-Host
-    if ($LASTEXITCODE -eq 0) { Ok "ffmpeg installato" } else { Avviso "ffmpeg non installato: l'export WAV funziona comunque" }
 } else {
-    Avviso "winget non disponibile: installa ffmpeg a mano per l'MP3 (il WAV funziona comunque)"
+    $fatto = $false
+    if ((-not $FFmpegZip) -and (Get-Command winget -ErrorAction SilentlyContinue)) {
+        & winget install -e --id Gyan.FFmpeg --silent --accept-package-agreements --accept-source-agreements | Out-Host
+        $fatto = ($LASTEXITCODE -eq 0)
+    }
+    if (-not $fatto) { $fatto = Installa-FFmpegZip }
+    if ($fatto) { Ok "ffmpeg installato" } else { Avviso "ffmpeg non installato: l'export WAV funziona comunque" }
 }
 
 # --------------------------------------------------- 5. suoni del pianoforte

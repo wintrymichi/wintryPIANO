@@ -10,7 +10,7 @@ Il flusso è in tre passi: **1. suona e registra il piano**, **2. canta**, **3. 
 2. Fai doppio clic su **`installa.bat`**. L'installer:
    - installa Python 3.12 a 64 bit, se manca (con winget, oppure da python.org);
    - crea l'ambiente `.venv` e installa tutte le librerie;
-   - installa ffmpeg con winget, per l'export in MP3;
+   - installa ffmpeg per l'export in MP3 (con winget, oppure scaricandolo in `ffmpeg\` se winget manca);
    - scarica i suoni del pianoforte (Salamander Grand Piano, circa 296 MB, e YDP Grand Piano, circa 36 MB);
    - crea il collegamento "Wintry Piano" sul desktop.
 3. Avvia il programma con il collegamento oppure con **`avvia.py`** (doppio clic, oppure `.venv\Scripts\python.exe avvia.py`).
