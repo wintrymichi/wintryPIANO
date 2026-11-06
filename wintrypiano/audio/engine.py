@@ -70,6 +70,10 @@ class AudioEngine:
         self.mode = IDLE
         self._playback = None
         self._play_pos = 0
+        self._with_voice = False
+        self._capture = False
+        self._dac_time = None
+        self._adc_time = None
 
     def _reset_counters(self) -> None:
         self.callback_count = 0
@@ -181,7 +185,14 @@ class AudioEngine:
     def note_event(self, kind: int, a: int, b: int) -> None:
         self.midi_queue.append((kind, a, b))
 
-    def start_piano_recording(self, bpm: float, count_in_beats: int) -> None:
+    def start_piano_recording(self, bpm: float, count_in_beats: int, with_voice: bool = False) -> None:
+        """Registra il piano (MIDI). Con ``with_voice`` registra anche il microfono
+        nella stessa take, allineato al piano come nella registrazione della voce."""
+        self._with_voice = with_voice
+        self._capture = False
+        self._dac_time = None
+        self._adc_time = None
+        self.voice_ring.clear()
         self.metronome.set_bpm(bpm)
         self.rec_queue.clear()
         self._session_frame = 0
@@ -242,6 +253,7 @@ class AudioEngine:
     def stop(self) -> None:
         self.mode = IDLE
         self._capture = False
+        self._with_voice = False
         self._playback = None
 
     def playback_position(self) -> tuple[float, float]:
@@ -295,7 +307,7 @@ class AudioEngine:
             self.mic_clip = True
         if self.monitor_enabled:
             self.monitor_ring.write(mono)
-        if self.mode == REC_VOICE and self._capture:
+        if self._capture and self.mode in (REC_VOICE, REC_PIANO):
             if self._adc_time is None:
                 self._adc_time = adc_time
             self.voice_ring.write(mono)
@@ -312,6 +324,11 @@ class AudioEngine:
         if mode == COUNT_IN and self._session_frame >= self._rec_offset:
             self.mode = mode = REC_PIANO
             self._begin_rec()
+
+        # Suona e canta: la voce parte esattamente all'inizio della take del piano
+        if mode == REC_PIANO and self._with_voice and not self._capture:
+            self._dac_time = dac_time
+            self._capture = True
 
         # 1) eventi MIDI + suono dal vivo
         if synth.lock.acquire(False):

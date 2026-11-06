@@ -188,3 +188,42 @@ def test_metronome_click_positions():
             assert not out[start - 2000:start, 0].any()
     # accento sul primo battito della battuta
     assert out[1:200, 0].max() != out[24001:24200, 0].max()
+
+
+def test_play_and_sing_in_one_take(synth):
+    """Suona e canta: la voce parte con la take del piano ed è allineata a essa."""
+    e = AudioEngine(synth, SR)
+    e.start_piano_recording(bpm=120, count_in_beats=1, with_voice=True)  # 24000 frame di conto
+    out = np.zeros((B, 2), np.float32)
+    mic = np.full((B, 1), 0.2, np.float32)
+    t = 5.0
+    # durante il conto alla rovescia il microfono non viene registrato
+    while e.mode == COUNT_IN or (e.mode == REC_PIANO and not e._capture):
+        e._process_input(mic, B, t - 0.010)
+        e._process_output(out, B, t + 0.020)
+        t += B / SR
+    assert e.voice_ring.available() == 0
+    assert e.mode == REC_PIANO and e._capture
+    dac = e._dac_time
+    e.note_event(NOTE_ON, 64, 100)
+    for _ in range(10):
+        e._process_input(mic, B, t - 0.010)
+        e._process_output(out, B, t + 0.020)
+        t += B / SR
+    assert e.voice_ring.available() == 10 * B
+    assert e.rec_queue[0][1:] == (NOTE_ON, 64, 100)
+    # primo campione della voce catturato 30 ms prima che il primo blocco della take arrivi alle cuffie
+    assert abs(e.voice_offset_ms() - ((e._adc_time - dac) * 1000)) < 1e-9
+    assert -31 < e.voice_offset_ms() < -29 + 1000 * B / SR
+    e.stop()
+    assert e._with_voice is False
+
+
+def test_piano_only_recording_does_not_capture_voice(synth):
+    e = AudioEngine(synth, SR)
+    e.start_piano_recording(bpm=120, count_in_beats=0)
+    out = np.zeros((B, 2), np.float32)
+    for _ in range(5):
+        e._process_input(np.full((B, 1), 0.2, np.float32), B, 0)
+        e._process_output(out, B, 0)
+    assert e.voice_ring.available() == 0

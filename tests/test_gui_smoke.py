@@ -80,6 +80,17 @@ def test_full_flow_in_demo_mode(tmp_path, sf2_path, monkeypatch):
         win.stop_all()
         assert _wait(app, lambda: win.project.has_voice() and not win._busy)
 
+    # suona e canta nella stessa take
+    if win.engine.input_name:
+        win.cb_sing.setChecked(True)
+        win.record_piano()
+        assert win.engine.mode == REC_PIANO
+        assert _wait(app, lambda: win.engine.recording_seconds() > 1.5)
+        assert _wait(app, lambda: sum(1 for e in win.writer.events if e[1] == 0) >= 1)
+        win.stop_all()
+        assert win.project.has_piano() and win.project.has_voice(), errors
+        win.cb_sing.setChecked(False)
+
     win.export("wav")
     assert _wait(app, lambda: out_wav.exists() and not win._busy, timeout=30)
     data, sr = sf.read(str(out_wav))

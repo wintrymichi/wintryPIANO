@@ -221,11 +221,18 @@ class MainWindow(QMainWindow):
         self.cb_countin.setChecked(True)
         self.cb_countin.toggled.connect(self._set_countin)
         opts2.addWidget(self.cb_countin)
+        self.cb_sing = QCheckBox("Canta mentre suoni (registra anche la voce)")
+        self.cb_sing.setToolTip("Piano e voce nella stessa take: il piano come MIDI, la voce come WAV")
+        self.cb_sing.toggled.connect(self._set_sing_along)
         opts2.addStretch(1)
         self.latency_label = QLabel("")
         self.latency_label.setObjectName("hint")
         opts2.addWidget(self.latency_label)
         lay.addLayout(opts2)
+        lay.addWidget(self.cb_sing)
+        self.piano_meter = LevelMeter()
+        self.piano_meter.setVisible(False)
+        lay.addWidget(self.piano_meter)
         lay.addStretch(1)
         return w
 
@@ -566,7 +573,7 @@ class MainWindow(QMainWindow):
             widget.blockSignals(False)
         for widget, value in ((self.cb_piano_reverb, s.piano_reverb), (self.cb_mix_piano_reverb, s.piano_reverb),
                               (self.cb_voice_reverb, s.voice_reverb), (self.cb_metro, s.metronome),
-                              (self.cb_countin, s.count_in)):
+                              (self.cb_countin, s.count_in), (self.cb_sing, s.sing_along)):
             widget.blockSignals(True)
             widget.setChecked(value)
             widget.blockSignals(False)
@@ -700,6 +707,11 @@ class MainWindow(QMainWindow):
         if self.demo_player:
             self.demo_player.bpm = bpm
 
+    def _set_sing_along(self, on: bool) -> None:
+        self.piano_meter.setVisible(on)
+        if self.project:
+            self.project.settings.sing_along = on
+
     def _set_countin(self, on: bool) -> None:
         if self.project:
             self.project.settings.count_in = on
@@ -724,30 +736,43 @@ class MainWindow(QMainWindow):
         if self.synth.font is None:
             raise UserError("Manca il suono del pianoforte: sceglilo da Impostazioni → Suono del pianoforte.")
         proj = self.project
-        if proj.has_piano():
-            msg = "Esiste già una take del piano. Vuoi sovrascriverla?"
-            if proj.has_voice():
-                msg += "\n\nAttenzione: la voce già registrata resterà, ma non sarà più a tempo col nuovo piano."
+        sing = self.cb_sing.isChecked()
+        if sing and not self.engine.input_name:
+            raise UserError(self.engine.input_error or
+                            "Per cantare mentre suoni scegli il microfono da Dispositivi → Microfono.")
+        if proj.has_piano() or (sing and proj.has_voice()):
+            if sing:
+                what = " e della voce" if proj.has_voice() else ""
+                msg = f"Esiste già una take del piano{what}. Vuoi sovrascriverla?"
+                if proj.has_voice() and not proj.has_piano():
+                    msg = "Esiste già una registrazione della voce. Vuoi sovrascriverla?"
+            else:
+                msg = "Esiste già una take del piano. Vuoi sovrascriverla?"
+                if proj.has_voice():
+                    msg += "\n\nAttenzione: la voce già registrata resterà, ma non sarà più a tempo col nuovo piano."
             if not self.confirm(msg):
                 return
         self.engine.stop()
         bpm = float(self.sp_bpm.value())
         proj.settings.bpm = bpm
         self.piano_journal = recovery.PianoJournal(proj.recovery_dir, bpm)
-        self.writer = RecordingWriter(self.engine, piano_journal=self.piano_journal)
+        self.voice_journal = recovery.VoiceJournal(proj.recovery_dir, self.engine.samplerate) if sing else None
+        self.writer = RecordingWriter(self.engine, piano_journal=self.piano_journal,
+                                      voice_journal=self.voice_journal)
         self.writer.start()
         self.engine.metronome_gain = self.cfg.metronome_volume
         self.engine.metronome_enabled = self.cb_metro.isChecked()
-        self.engine.start_piano_recording(bpm, 4 if self.cb_countin.isChecked() else 0)
+        self.engine.start_piano_recording(bpm, 4 if self.cb_countin.isChecked() else 0, with_voice=sing)
         set_active(self.btn_rec_piano, True)
 
     def _finish_piano_recording(self) -> None:
         end_t = self.engine.recording_seconds()
         held = [k for k in range(128) if self.synth._held[k]]  # noqa: SLF001
         sustain = self.synth.sustain
+        offset = self.engine.voice_offset_ms()
         self.engine.stop()
-        writer, journal = self.writer, self.piano_journal
-        self.writer = self.piano_journal = None
+        writer, journal, vjournal = self.writer, self.piano_journal, self.voice_journal
+        self.writer = self.piano_journal = self.voice_journal = None
         writer.finish()
         events = list(writer.events)
         set_active(self.btn_rec_piano, False)
@@ -758,20 +783,36 @@ class MainWindow(QMainWindow):
                 events.append((end_t, CONTROL, CC_SUSTAIN, 0))
         if writer.error:
             journal.close(delete=False)
+            if vjournal:
+                vjournal.close(delete=False)
             raise UserError("Errore durante la scrittura della registrazione su disco. "
                             "Al prossimo avvio proverò a recuperarla.")
-        if not any(e[1] == 0 for e in events):
-            journal.close(delete=True)
-            self.statusBar().showMessage("Nessuna nota registrata.", 5000)
-            return
-        try:
-            self.project.save_piano_take(events, overwrite=True)  # conferma già chiesta prima di registrare
-        except Exception:
-            journal.close(delete=False)
-            raise
+        saved = []
+        if any(e[1] == 0 for e in events):
+            try:
+                self.project.save_piano_take(events, overwrite=True)  # conferma già chiesta prima di registrare
+            except Exception:
+                journal.close(delete=False)
+                if vjournal:
+                    vjournal.close(delete=False)
+                raise
+            self._piano_cache = None
+            saved.append(f"piano ({end_t:.1f} s)")
         journal.close(delete=True)
-        self._piano_cache = None
-        self.statusBar().showMessage(f"Take del piano salvata ({end_t:.1f} s) in {self.project.piano_path.name}.", 6000)
+        if vjournal is not None:
+            audio = writer.voice_audio()
+            if audio.size >= self.engine.samplerate * 0.2:
+                try:
+                    self.project.save_voice_take(audio, self.engine.samplerate, offset, overwrite=True)
+                except Exception:
+                    vjournal.close(delete=False)
+                    raise
+                saved.append(f"voce ({audio.size / self.engine.samplerate:.1f} s)")
+            vjournal.close(delete=True)
+        if saved:
+            self.statusBar().showMessage("Salvato: " + ", ".join(saved) + ".", 6000)
+        else:
+            self.statusBar().showMessage("Nessuna nota registrata.", 5000)
 
     # ===================================================== registrazione voce
     @guarded
@@ -997,14 +1038,19 @@ class MainWindow(QMainWindow):
             self.mix_time.setText("")
         peak, clip = e.take_mic_level()
         self.meter.set_level(peak, clip)
+        if self.piano_meter.isVisible():
+            self.piano_meter.set_level(peak, clip)
         if clip:
             self._clip_until = 40  # ~2 s
             self.clip_label.setText("⚠ Il microfono satura: abbassa il guadagno o allontanati un po'.")
+            if self.piano_meter.isVisible():
+                self.statusBar().showMessage("⚠ Il microfono satura: abbassa il guadagno.", 2000)
         elif self._clip_until > 0:
             self._clip_until -= 1
             if self._clip_until == 0:
                 self.clip_label.setText("")
                 self.meter.reset_clip()
+                self.piano_meter.reset_clip()
         rec = mode in (COUNT_IN, REC_PIANO, REC_VOICE)
         busy = self._busy > 0
         self.btn_rec_piano.setEnabled(not rec and not busy)

@@ -36,6 +36,7 @@ class ProjectSettings:
     bpm: float = 100.0
     metronome: bool = False
     count_in: bool = True
+    sing_along: bool = False   # registra anche la voce mentre suoni
     piano_volume: float = 0.8
     piano_reverb: bool = False
     voice_volume: float = 0.9
