@@ -15,7 +15,7 @@ BUFFER_SIZES = (64, 128, 256, 512, 1024, 2048)
 
 @dataclass
 class Config:
-    midi_input: str = ""
+    midi_input: str = "*"          # "*" = tutti gli ingressi, "-" = nessuno
     audio_input: str = ""
     audio_output: str = ""
     host_api: str = "auto"          # "auto" oppure il nome esatto (es. "ASIO")

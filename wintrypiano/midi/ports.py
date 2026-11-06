@@ -56,61 +56,108 @@ def match_port(wanted: str, available: list[str]) -> str | None:
     return None
 
 
+ALL = "*"    # ascolta tutti gli ingressi MIDI (predefinito)
+NONE = "-"   # nessun ingresso
+
+
 class MidiInput:
-    """Apre una porta MIDI e inoltra note/controlli a ``sink(tipo, a, b)``."""
+    """Apre uno o tutti gli ingressi MIDI e inoltra note/controlli a ``sink(tipo, a, b)``.
+
+    Con ``ALL`` ascolta tutte le porte insieme: utile con interfacce che hanno più
+    ingressi (es. "ESI MIDIMATE eX 0" e "MIDIIN2 (ESI MIDIMATE eX) 1"), dove non si
+    sa a quale è collegato il piano.
+    """
 
     def __init__(self, sink: Callable[[int, int, int], None]):
         self.sink = sink
-        self.port = None
-        self.name = ""
-        self.wanted = ""   # porta scelta dall'utente (anche se ora scollegata)
+        self.ports: dict = {}
+        self.wanted = ALL      # scelta dell'utente (anche se ora scollegata)
+        self.activity = 0      # messaggi ricevuti (per la spia nella GUI)
+        self._seen: set = set()
 
     @property
     def connected(self) -> bool:
-        return self.port is not None
+        return bool(self.ports)
 
-    def _callback(self, msg) -> None:
-        ev = from_mido(msg)
-        if ev is not None:
-            self.sink(*ev)
+    @property
+    def name(self) -> str:
+        return ", ".join(self.ports)
 
-    def open(self, name: str) -> None:
-        self.close()
-        self.wanted = name
-        if not name:
-            return
+    def _make_callback(self, port_name: str):
+        def callback(msg) -> None:
+            self.activity += 1
+            if port_name not in self._seen:
+                self._seen.add(port_name)
+                log.info("primo messaggio MIDI da %r: %s", port_name, msg)
+            ev = from_mido(msg)
+            if ev is not None:
+                self.sink(*ev)
+        return callback
+
+    def _open_port(self, name: str) -> None:
         try:
-            self.port = _mido().open_input(name, callback=self._callback)
-            self.name = name
+            self.ports[name] = _mido().open_input(name, callback=self._make_callback(name))
+            log.info("ingresso MIDI aperto: %r", name)
         except UserError:
             raise
         except Exception as exc:
-            self.port = None
+            log.warning("apertura MIDI %r fallita: %s", name, exc)
             raise UserError(f"Non riesco ad aprire il piano MIDI «{name}». "
-                            "Forse è usato da un altro programma.") from exc
+                            "Forse è usato da un altro programma: chiudilo e riprova.") from exc
+
+    def open(self, name: str) -> None:
+        self.close()
+        self.wanted = name or NONE
+        if self.wanted == NONE:
+            return
+        if self.wanted == ALL:
+            errors = []
+            names = list_inputs()
+            for n in names:
+                try:
+                    self._open_port(n)
+                except UserError as exc:
+                    errors.append(exc)
+            if names and not self.ports and errors:
+                raise errors[0]
+            return
+        self._open_port(self.wanted)
 
     def close(self) -> None:
-        if self.port is not None:
+        for port in self.ports.values():
             try:
-                self.port.close()
+                port.close()
             except Exception:
                 pass
-        self.port = None
-        self.name = ""
+        self.ports = {}
 
     def poll(self) -> str | None:
         """Controlla collegamenti/scollegamenti. Ritorna un messaggio di stato o None."""
+        if self.wanted == NONE:
+            return None
         available = list_inputs()
-        if self.port is not None and self.name not in available:
-            self.close()
-            return f"Piano MIDI scollegato: {self.wanted}"
-        if self.port is None and self.wanted:
+        msg = None
+        for n in [n for n in self.ports if n not in available]:
+            try:
+                self.ports.pop(n).close()
+            except Exception:
+                pass
+            msg = f"Piano MIDI scollegato: {n}"
+        if self.wanted == ALL:
+            for n in available:
+                if n not in self.ports:
+                    try:
+                        self._open_port(n)
+                        msg = f"Piano MIDI collegato: {n}"
+                    except UserError:
+                        pass
+        elif not self.ports:
             found = match_port(self.wanted, available)
             if found:
                 try:
-                    self.open(found)
+                    self._open_port(found)
                     self.wanted = found
-                    return f"Piano MIDI collegato: {found}"
+                    msg = f"Piano MIDI collegato: {found}"
                 except UserError:
-                    return None
-        return None
+                    pass
+        return msg

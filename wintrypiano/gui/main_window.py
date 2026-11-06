@@ -30,7 +30,7 @@ from wintrypiano.gui.soundfont_dialog import SoundfontDialog
 from wintrypiano.gui.widgets import LevelMeter, Panel, big_button, set_active
 from wintrypiano.gui.workers import run_task
 from wintrypiano.midi.demo import DemoPlayer
-from wintrypiano.midi.ports import MidiInput, list_inputs, match_port
+from wintrypiano.midi.ports import ALL, NONE, MidiInput, list_inputs, match_port
 from wintrypiano.paths import documents_dir
 from wintrypiano.soundfonts.catalog import CATALOG, find_default_soundfont
 
@@ -149,8 +149,14 @@ class MainWindow(QMainWindow):
         root.addWidget(self.busy_bar)
         self.setCentralWidget(central)
 
+        self.midi_led = QLabel("● MIDI")
+        self.midi_led.setToolTip("Si accende quando arrivano note dal piano")
+        self.midi_led.setStyleSheet("color: #3a4a63;")
+        self.statusBar().addPermanentWidget(self.midi_led)
         self.status_devices = QLabel("")
         self.statusBar().addPermanentWidget(self.status_devices)
+        self._midi_seen = 0
+        self._midi_led_ticks = 0
 
     def _slider(self, value: float, on_change) -> QSlider:
         s = QSlider(Qt.Horizontal)
@@ -444,15 +450,11 @@ class MainWindow(QMainWindow):
         m.clear()
         group = QActionGroup(m)
         names = list_inputs()
-        a = QAction("Nessuno", m, checkable=True)
-        a.setChecked(not self.midi.wanted)
-        a.triggered.connect(lambda: self.select_midi(""))
-        group.addAction(a)
-        m.addAction(a)
-        for n in names:
-            a = QAction(n, m, checkable=True)
-            a.setChecked(n == self.midi.name)
-            a.triggered.connect(lambda _=False, name=n: self.select_midi(name))
+        choices = [(ALL, "Tutti gli ingressi (consigliato)"), (NONE, "Nessuno")] + [(n, n) for n in names]
+        for value, label in choices:
+            a = QAction(label, m, checkable=True)
+            a.setChecked(value == self.midi.wanted)
+            a.triggered.connect(lambda _=False, v=value: self.select_midi(v))
             group.addAction(a)
             m.addAction(a)
         if not names:
@@ -501,22 +503,19 @@ class MainWindow(QMainWindow):
         self.open_audio()
 
     def _open_last_midi(self) -> None:
-        names = list_inputs()
-        found = match_port(self.cfg.midi_input, names) or (names[0] if names else None)
-        if found:
-            try:
-                self.midi.open(found)
-                if not self.cfg.midi_input:
-                    self.cfg.midi_input = found
-            except UserError as exc:
-                self.statusBar().showMessage(exc.message, 8000)
-        else:
-            self.midi.wanted = self.cfg.midi_input
+        wanted = self.cfg.midi_input or ALL
+        if wanted not in (ALL, NONE):
+            wanted = match_port(wanted, list_inputs()) or wanted
+        try:
+            self.midi.open(wanted)
+        except UserError as exc:
+            self.midi.wanted = wanted  # riprova quando torna disponibile
+            self.statusBar().showMessage(exc.message, 8000)
         self._update_device_status()
 
     def _update_device_status(self) -> None:
         e = self.engine
-        midi = self.midi.name or "non collegato"
+        midi = self.midi.name or ("nessuno" if self.midi.wanted == NONE else "non collegato")
         if self.demo_player:
             midi = f"demo attiva ({midi})" if self.midi.name else "demo attiva"
         if e.is_open:
@@ -964,6 +963,15 @@ class MainWindow(QMainWindow):
     # ===================================================== timer
     def _tick(self) -> None:
         e = self.engine
+        if self.midi.activity != self._midi_seen:
+            self._midi_seen = self.midi.activity
+            if self._midi_led_ticks == 0:
+                self.midi_led.setStyleSheet("color: #6fe3b0; font-weight: 600;")
+            self._midi_led_ticks = 6
+        elif self._midi_led_ticks:
+            self._midi_led_ticks -= 1
+            if self._midi_led_ticks == 0:
+                self.midi_led.setStyleSheet("color: #3a4a63;")
         mode = e.mode
         if mode == COUNT_IN:
             self.count_label.setText(str(e.count_in_remaining()))
