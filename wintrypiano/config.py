@@ -26,6 +26,7 @@ class Config:
     voice_manual_offset_ms: float = 0.0
     metronome_volume: float = 0.6
     recent_projects: list = field(default_factory=list)
+    version: int = 2
 
     # ------------------------------------------------------------------
     @classmethod
@@ -47,6 +48,10 @@ class Config:
         for key, value in data.items():
             if key in known:
                 setattr(cfg, key, value)
+        if int(data.get("version", 1)) < 2:
+            # La versione 1 salvava da sola la prima porta MIDI trovata: passo a "tutti gli ingressi".
+            cfg.midi_input = "*"
+            cfg.version = 2
         if cfg.block_size not in BUFFER_SIZES:
             cfg.block_size = 256
         return cfg

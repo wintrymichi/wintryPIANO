@@ -87,3 +87,16 @@ def test_none_opens_nothing(fake):
     m = ports.MidiInput(lambda *ev: None)
     m.open(ports.NONE)
     assert not m.ports and m.poll() is None
+
+
+def test_old_settings_switch_to_all_midi_inputs(tmp_path):
+    import json
+
+    from wintrypiano.config import Config
+
+    p = tmp_path / "settings.json"
+    p.write_text(json.dumps({"midi_input": "ESI MIDIMATE eX 0"}), encoding="utf-8")
+    assert Config.load(p).midi_input == ports.ALL
+    cfg = Config(midi_input="ESI MIDIMATE eX 0")
+    cfg.save(p)
+    assert Config.load(p).midi_input == "ESI MIDIMATE eX 0"  # scelta esplicita nella nuova versione
