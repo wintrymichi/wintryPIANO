@@ -25,7 +25,7 @@ Per provare tutto senza piano collegato: `avvia.py --demo`, oppure *Impostazioni
 
 | Suono | Licenza | Note |
 |---|---|---|
-| Salamander Grand Piano V3 (Yamaha C5, Alexander Holm, conversione SF2 di FreePats) | CC BY 3.0 | Il più realistico, ed è quello predefinito. Usa molta RAM: con meno di 8 GB conviene YDP |
+| Salamander Grand Piano V3 (Yamaha C5, Alexander Holm, conversione SF2 di FreePats) | CC BY 3.0 | Il più realistico, ed è quello predefinito. Occupa 1,2 GB su disco e circa 2,5 GB di RAM: con meno di 8 GB di RAM conviene YDP |
 | YDP Grand Piano (FreePats) | CC BY 3.0 | Più leggero |
 
 Fonte: <https://freepats.zenvoid.org/Piano/acoustic-grand-piano.html>

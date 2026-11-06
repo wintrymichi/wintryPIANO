@@ -29,7 +29,7 @@ class SoundfontInfo:
 SALAMANDER = SoundfontInfo(
     key="salamander",
     title="Salamander Grand Piano V3 (Yamaha C5)",
-    description="Pianoforte a coda campionato su 16 livelli di velocity. Il più realistico, richiede più RAM.",
+    description="Pianoforte a coda campionato su 16 livelli di velocity. Il più realistico. Occupa 1,2 GB su disco e circa 2,5 GB di RAM.",
     url="https://freepats.zenvoid.org/Piano/SalamanderGrandPiano/SalamanderGrandPiano-SF2-V3+20200602.tar.xz",
     archive_mb=296,
     license="Creative Commons Attribution 3.0 (CC BY 3.0)",
