@@ -31,6 +31,7 @@ QPushButton#record {{ font-size: 15pt; min-height: 64px; min-width: 150px; borde
     background: #2a1620; border: 1px solid #6b2a3a; color: #ffd6dc; }}
 QPushButton#record:hover {{ border-color: {RED}; }}
 QPushButton#record[active="true"] {{ background: {RED}; color: white; }}
+QPushButton#nudge {{ padding: 4px 8px; min-width: 44px; border-radius: 8px; }}
 QPushButton#step {{ font-size: 12pt; padding: 12px 18px; border-radius: 12px; background: {PANEL}; color: {MUTED}; }}
 QPushButton#step:checked {{ background: {ICE_DARK}; color: white; border-color: {ICE}; }}
 QCheckBox {{ spacing: 8px; }}
@@ -41,6 +42,11 @@ QSlider::sub-page:horizontal {{ background: {ICE_DARK}; border-radius: 3px; }}
 QSlider::handle:horizontal {{ background: {ICE}; width: 18px; margin: -7px 0; border-radius: 9px; }}
 QSpinBox, QDoubleSpinBox, QComboBox {{ background: {PANEL_2}; border: 1px solid {BORDER}; border-radius: 8px; padding: 4px 8px; }}
 QComboBox QAbstractItemView {{ background: {PANEL_2}; selection-background-color: {ICE_DARK}; }}
+QScrollBar:horizontal {{ background: {PANEL}; height: 12px; border-radius: 6px; }}
+QScrollBar::handle:horizontal {{ background: {BORDER}; border-radius: 6px; min-width: 40px; }}
+QScrollBar::handle:horizontal:hover {{ background: {ICE_DARK}; }}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0px; }}
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{ background: none; }}
 QMenuBar {{ background: {BG}; }}
 QMenuBar::item:selected, QMenu::item:selected {{ background: {ICE_DARK}; }}
 QMenu {{ background: {PANEL}; border: 1px solid {BORDER}; }}

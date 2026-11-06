@@ -102,3 +102,80 @@ def test_full_flow_in_demo_mode(tmp_path, sf2_path, monkeypatch):
     assert (tmp_path / "piano_export.mid").read_bytes() == win.project.piano_path.read_bytes()
     assert Project.open(win.project.folder).settings.name
     win.close()
+
+
+def test_import_and_sync(tmp_path, sf2_path, monkeypatch, synth):
+    """Importa un MIDI e un audio (lo stesso brano, in ritardo), allinea e ascolta."""
+    from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMessageBox
+
+    from wintrypiano.audio.engine import PLAYING, REC_PIANO
+    from wintrypiano.config import Config
+    from wintrypiano.core.midifile import save_midi
+    from wintrypiano.gui import main_window as mw
+    from wintrypiano.gui import sync_dialog
+    from wintrypiano.midi.demo import demo_events
+
+    app = QApplication.instance() or QApplication([])
+    errors = []
+    monkeypatch.setattr(mw.MainWindow, "error", lambda self, exc: errors.append(exc))
+    monkeypatch.setattr(mw.MainWindow, "confirm", lambda self, text: True)
+    monkeypatch.setattr(mw.MainWindow, "info", lambda self, *a: None)
+    monkeypatch.setattr(mw, "documents_dir", lambda: tmp_path / "docs")
+    monkeypatch.setattr(QMessageBox, "exec", lambda self: 0)
+
+    events = demo_events(bpm=110, bars=6, seed=5)
+    save_midi(events, tmp_path / "brano.mid", bpm=110)
+    song = synth.render([(t + 0.8, k, a, b) for t, k, a, b in events])   # l'audio parte 0,8 s dopo
+    sf.write(tmp_path / "brano.wav", song * (0.7 / np.abs(song).max()), 48000)
+
+    cfg = Config(soundfont_path=str(sf2_path), block_size=256)
+    win = mw.MainWindow(cfg)
+    win.show()
+    assert _wait(app, lambda: win.synth.font is not None and win.project is not None)
+    if not win.engine.is_open:
+        win.close()
+        pytest.skip("il dispositivo audio di questa macchina non si apre")
+
+    seen = {}
+
+    def drive(dlg):
+        seen["dialog"] = dlg
+        assert set(dlg.lanes) == {"piano", "base"}
+        assert _wait(app, lambda: all(l.peaks is not None for l in dlg.lanes.values()))
+        dlg.view.resize(900, dlg.view.height())
+        dlg.view.repaint()
+        dlg.auto_align()
+        assert _wait(app, lambda: dlg.btn_auto.isEnabled(), timeout=30)
+        seen["auto"] = dlg.base_offset_ms
+        # ritocco a mano e ascolto da un punto
+        dlg.spins["base"].setValue(dlg.spins["base"].value() + 10)
+        dlg.view.cursor_s = 1.0
+        dlg.preview()
+        assert _wait(app, lambda: win.engine.mode == PLAYING, timeout=30)
+        assert _wait(app, lambda: (dlg.view.playhead_s or 0) > 1.05)
+        dlg.stop_preview()
+        return QDialog.Accepted
+
+    monkeypatch.setattr(sync_dialog.SyncDialog, "exec", drive)
+    files = iter([str(tmp_path / "brano.mid"), str(tmp_path / "brano.wav")])
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", staticmethod(lambda *a, **k: (next(files), "")))
+
+    win.import_midi()
+    assert win.project.has_piano() and win.sp_bpm.value() == 110, errors
+    win.import_audio()   # alla fine propone la sincronizzazione (confermata) e apre il dialogo
+    assert _wait(app, lambda: "dialog" in seen and not win._busy, timeout=60), errors
+    assert seen["auto"] == pytest.approx(-800, abs=20)
+    assert win.project.settings.base_offset_ms == pytest.approx(seen["auto"] + 10)
+    assert not win.base_row.isHidden() and win.project.has_base()
+
+    # la base suona mentre registro il piano
+    win.cb_countin.setChecked(False)
+    win.record_piano()
+    assert win.engine.mode == REC_PIANO and win.engine._playback is not None
+    assert _wait(app, lambda: win.engine.recording_seconds() > 0.3)
+    win.stop_all()
+
+    win.remove_audio()
+    assert not win.project.has_base() and win.base_row.isHidden()
+    assert not errors, errors
+    win.close()

@@ -20,14 +20,17 @@ from wintrypiano.config import Config
 from wintrypiano.core import recovery
 from wintrypiano.core.events import CC_SUSTAIN, CONTROL, NOTE_OFF
 from wintrypiano.core.export import find_ffmpeg, write_mp3, write_wav
+from wintrypiano.core.audiofile import AUDIO_FILTER, read_audio
+from wintrypiano.core.audiofile import resample as resample_hq
 from wintrypiano.core.midifile import save_midi
-from wintrypiano.core.mixer import MixSettings, mix_tracks
+from wintrypiano.core.mixer import combine, mix_tracks
 from wintrypiano.core.project import Project, default_project_folder
 from wintrypiano.core.reverb import apply_reverb_offline
 from wintrypiano.core.synth import LoadedFont, PianoSynth
 from wintrypiano.errors import UserError, friendly_message
 from wintrypiano.gui.settings_dialog import SettingsDialog
 from wintrypiano.gui.soundfont_dialog import SoundfontDialog
+from wintrypiano.gui.sync_dialog import SyncDialog
 from wintrypiano.gui.widgets import LevelMeter, Panel, big_button, set_active
 from wintrypiano.gui.workers import run_task
 from wintrypiano.midi.demo import DemoPlayer
@@ -80,6 +83,8 @@ class MainWindow(QMainWindow):
         self.piano_journal = None
         self.voice_journal = None
         self._piano_cache = None   # (chiave, audio)
+        self._base_cache = None    # (chiave, audio)
+        self._backing_lead_ms = 0.0
         self._busy = 0
         self._audio_lost = False
         self._last_cb = -1
@@ -231,6 +236,12 @@ class MainWindow(QMainWindow):
         opts2.addWidget(self.latency_label)
         lay.addLayout(opts2)
         lay.addWidget(self.cb_sing)
+        self.cb_base_rec = QCheckBox("Suona l'audio importato mentre registri")
+        self.cb_base_rec.setToolTip("Utile per suonare o cantare sopra una base: la base non viene registrata, "
+                                    "resta una traccia separata")
+        self.cb_base_rec.toggled.connect(self._set_base_during_rec)
+        self.cb_base_rec.setVisible(False)
+        lay.addWidget(self.cb_base_rec)
         self.piano_meter = LevelMeter()
         self.piano_meter.setVisible(False)
         lay.addWidget(self.piano_meter)
@@ -299,6 +310,24 @@ class MainWindow(QMainWindow):
         self.cb_voice_reverb.toggled.connect(self._set_voice_reverb)
         r2.addWidget(self.cb_voice_reverb)
         lay.addLayout(r2)
+        self.base_row = QWidget()
+        r3 = QHBoxLayout(self.base_row)
+        r3.setContentsMargins(0, 0, 0, 0)
+        self.base_label = QLabel("Audio importato")
+        r3.addWidget(self.base_label)
+        self.sl_base = self._slider(0.8, self._set_base_volume)
+        r3.addWidget(self.sl_base, 1)
+        self.base_row.setVisible(False)
+        lay.addWidget(self.base_row)
+        sync_row = QHBoxLayout()
+        self.btn_sync = QPushButton("⇆  Sincronizza tracce…")
+        self.btn_sync.setToolTip("Sposta voce e audio importato rispetto al piano, anche in automatico")
+        self.btn_sync.clicked.connect(self.open_sync)
+        sync_row.addWidget(self.btn_sync)
+        self.sync_hint = QLabel("")
+        self.sync_hint.setObjectName("hint")
+        sync_row.addWidget(self.sync_hint, 1)
+        lay.addLayout(sync_row)
         lay.addSpacing(10)
         self.mix_time = QLabel("")
         self.mix_time.setObjectName("hint")
@@ -342,6 +371,14 @@ class MainWindow(QMainWindow):
                                 ("Salva progetto", self.save_project, QKeySequence.Save)):
             a = QAction(text, self)
             a.setShortcut(key)
+            a.triggered.connect(slot)
+            m.addAction(a)
+        m.addSeparator()
+        for text, slot in (("Importa MIDI come piano…", self.import_midi),
+                           ("Importa audio (MP3, WAV…)…", self.import_audio),
+                           ("Rimuovi l'audio importato", self.remove_audio),
+                           ("Sincronizza tracce…", self.open_sync)):
+            a = QAction(text, self)
             a.triggered.connect(slot)
             m.addAction(a)
         m.addSeparator()
@@ -575,15 +612,17 @@ class MainWindow(QMainWindow):
     def _set_project(self, proj: Project) -> None:
         self.project = proj
         self._piano_cache = None
+        self._base_cache = None
         s = proj.settings
         for widget, value in ((self.sl_piano, s.piano_volume), (self.sl_mix_piano, s.piano_volume),
-                              (self.sl_voice, s.voice_volume)):
+                              (self.sl_voice, s.voice_volume), (self.sl_base, s.base_volume)):
             widget.blockSignals(True)
             widget.setValue(int(value * 100))
             widget.blockSignals(False)
         for widget, value in ((self.cb_piano_reverb, s.piano_reverb), (self.cb_mix_piano_reverb, s.piano_reverb),
                               (self.cb_voice_reverb, s.voice_reverb), (self.cb_metro, s.metronome),
-                              (self.cb_countin, s.count_in), (self.cb_sing, s.sing_along)):
+                              (self.cb_countin, s.count_in), (self.cb_sing, s.sing_along),
+                              (self.cb_base_rec, s.base_during_rec)):
             widget.blockSignals(True)
             widget.setChecked(value)
             widget.blockSignals(False)
@@ -594,6 +633,7 @@ class MainWindow(QMainWindow):
         self.cfg.last_project = str(proj.folder)
         self.cfg.save()
         self.project_label.setText(f"Progetto: {s.name}")
+        self._update_base_ui()
         self._check_recovery()
 
     @guarded
@@ -698,6 +738,14 @@ class MainWindow(QMainWindow):
         if self.project:
             self.project.settings.piano_reverb = on
 
+    def _set_base_volume(self, v: float) -> None:
+        if self.project:
+            self.project.settings.base_volume = v
+
+    def _set_base_during_rec(self, on: bool) -> None:
+        if self.project:
+            self.project.settings.base_during_rec = on
+
     def _set_voice_volume(self, v: float) -> None:
         if self.project:
             self.project.settings.voice_volume = v
@@ -772,7 +820,15 @@ class MainWindow(QMainWindow):
         self.writer.start()
         self.engine.metronome_gain = self.cfg.metronome_volume
         self.engine.metronome_enabled = self.cb_metro.isChecked()
-        self.engine.start_piano_recording(bpm, 4 if self.cb_countin.isChecked() else 0, with_voice=sing)
+        backing = None
+        self._rec_with_base = False
+        if proj.has_base() and proj.settings.base_during_rec:
+            base = self._base_audio()
+            backing = base * np.float32(proj.settings.base_volume)
+            self._rec_with_base = True
+        self.engine.playback_gain = 1.0
+        self.engine.start_piano_recording(bpm, 4 if self.cb_countin.isChecked() else 0, with_voice=sing,
+                                          backing=backing)
         set_active(self.btn_rec_piano, True)
 
     def _finish_piano_recording(self) -> None:
@@ -808,6 +864,11 @@ class MainWindow(QMainWindow):
                 raise
             self._piano_cache = None
             saved.append(f"piano ({end_t:.1f} s)")
+            if getattr(self, "_rec_with_base", False):
+                # la base è partita insieme alla take; la sento con il ritardo dell'uscita audio,
+                # quindi le note arrivano in ritardo di altrettanto: sposto la base per compensare
+                self.project.settings.base_offset_ms = round(self.engine.output_latency * 1000.0, 1)
+                self.project.save()
         journal.close(delete=True)
         if vjournal is not None:
             audio = writer.voice_audio()
@@ -831,20 +892,32 @@ class MainWindow(QMainWindow):
             return
         self._require_audio()
         proj = self.project
-        if not proj.has_piano():
-            raise UserError("Prima registra il piano al passo 1.")
+        if not proj.has_piano() and not proj.has_base():
+            raise UserError("Prima registra il piano al passo 1 (oppure importa un MIDI o un audio dal menu File).")
         if not self.engine.input_name:
             raise UserError(self.engine.input_error or "Nessun microfono selezionato. Sceglilo dal menu Dispositivi → Microfono.")
-        if self.synth.font is None:
+        if proj.has_piano() and self.synth.font is None:
             raise UserError("Manca il suono del pianoforte.")
         if proj.has_voice() and not self.confirm("Esiste già una registrazione della voce. Vuoi rifarla?\n"
                                                  "Il piano non verrà toccato."):
             return
         self.engine.stop()
         self._begin_busy("Preparo il piano…")
-        run_task(self._prepare_piano_playback, on_done=self._start_voice, on_error=self._busy_failed)
+        run_task(self._prepare_backing, on_done=self._start_voice, on_error=self._busy_failed)
 
-    def _start_voice(self, piano: np.ndarray) -> None:
+    def _prepare_backing(self):
+        """Quello che si sente mentre canti: piano (con volume e riverbero) ed eventuale base."""
+        proj = self.project
+        sr = self.synth.samplerate
+        piano = self._render_piano() if proj.has_piano() else None
+        base = self._base_audio() if proj.has_base() and proj.settings.base_during_rec else None
+        settings = proj.mix_settings(self.cfg.voice_manual_offset_ms)
+        audio, lead = combine(piano, None, sr, settings, base)
+        np.clip(audio, -1.0, 1.0, out=audio)
+        return audio, lead * 1000.0 / sr
+
+    def _start_voice(self, prepared) -> None:
+        piano, self._backing_lead_ms = prepared
         self._end_busy()
         proj = self.project
         self.voice_journal = recovery.VoiceJournal(proj.recovery_dir, self.engine.samplerate)
@@ -852,11 +925,13 @@ class MainWindow(QMainWindow):
         self.writer.start()
         self.engine.playback_gain = 1.0
         self.engine.metronome_enabled = self.cb_metro.isChecked()
-        self.engine.start_voice_recording(piano * np.float32(proj.settings.piano_volume), proj.settings.bpm)
+        self.engine.start_voice_recording(piano, proj.settings.bpm)
         set_active(self.btn_rec_voice, True)
 
     def _finish_voice_recording(self) -> None:
-        offset = self.engine.voice_offset_ms()
+        # la voce è registrata rispetto all'inizio di quello che sentivi; se la base partiva
+        # prima del piano tolgo quell'anticipo, così la voce resta agganciata al piano
+        offset = self.engine.voice_offset_ms() - self._backing_lead_ms
         self.engine.stop()
         writer, journal = self.writer, self.voice_journal
         self.writer = self.voice_journal = None
@@ -935,18 +1010,36 @@ class MainWindow(QMainWindow):
         proj = self.project
         sr = self.synth.samplerate
         piano = self._render_piano() if proj.has_piano() else None
-        voice, vsr = proj.load_voice_take()
-        if voice is not None:
-            voice = resample(voice, vsr, sr)
-        mix, _gain = mix_tracks(piano, voice, sr, proj.mix_settings(self.cfg.voice_manual_offset_ms))
+        voice = self._voice_audio()
+        base = self._base_audio() if proj.has_base() else None
+        mix, _gain = mix_tracks(piano, voice, sr, proj.mix_settings(self.cfg.voice_manual_offset_ms), base)
         return mix
+
+    def _voice_audio(self):
+        voice, vsr = self.project.load_voice_take()
+        if voice is not None:
+            voice = resample(voice, vsr, self.synth.samplerate)
+        return voice
+
+    def _base_audio(self) -> np.ndarray:
+        """Audio importato al samplerate attuale, con cache."""
+        proj = self.project
+        sr = self.synth.samplerate
+        key = (str(proj.base_path), proj.base_path.stat().st_mtime_ns, sr)
+        cache = self._base_cache
+        if cache is not None and cache[0] == key:
+            return cache[1]
+        audio, bsr = proj.load_base()
+        audio = resample_hq(audio, bsr, sr)
+        self._base_cache = (key, audio)
+        return audio
 
     @guarded
     def play_mix(self) -> None:
         if self._recording() or self._busy:
             return
         self._require_audio()
-        if not (self.project.has_piano() or self.project.has_voice()):
+        if not (self.project.has_piano() or self.project.has_voice() or self.project.has_base()):
             raise UserError("Non c'è ancora niente da ascoltare: registra prima il piano.")
         if self.project.has_piano() and self.synth.font is None:
             raise UserError("Manca il suono del pianoforte.")
@@ -965,7 +1058,7 @@ class MainWindow(QMainWindow):
     def export(self, fmt: str) -> None:
         if self._recording() or self._busy:
             return
-        if not (self.project.has_piano() or self.project.has_voice()):
+        if not (self.project.has_piano() or self.project.has_voice() or self.project.has_base()):
             raise UserError("Non c'è niente da esportare: registra prima il piano.")
         if self.project.has_piano() and self.synth.font is None:
             raise UserError("Manca il suono del pianoforte.")
@@ -1009,6 +1102,157 @@ class MainWindow(QMainWindow):
             except OSError as exc:
                 raise UserError(f"Non riesco a salvare il file «{out.name}».") from exc
         self.info("Export completato", f"File MIDI salvato:\n{out}")
+
+    # ===================================================== import e sincronizzazione
+    def _update_base_ui(self) -> None:
+        proj = self.project
+        has = proj is not None and proj.has_base()
+        name = proj.settings.base_name if has else ""
+        self.base_row.setVisible(has)
+        self.cb_base_rec.setVisible(has)
+        self.base_label.setText(f"Importato: {name[:28]}" if has else "")
+        self.base_label.setToolTip(name)
+        if has:
+            self.sync_hint.setText(f"Audio importato spostato di {proj.settings.base_offset_ms:+.0f} ms rispetto al piano.")
+        else:
+            self.sync_hint.setText("Per suonare o cantare su una canzone: File → Importa audio.")
+
+    @guarded
+    def import_midi(self) -> None:
+        if self._recording() or self._busy:
+            raise UserError("Ferma prima la registrazione o l'ascolto in corso.")
+        proj = self.project
+        path, _ = QFileDialog.getOpenFileName(self, "Importa un file MIDI come piano", str(documents_dir()),
+                                              "MIDI (*.mid *.midi *.kar)")
+        if not path:
+            return
+        if proj.has_piano():
+            msg = "Il progetto ha già una take del piano. Vuoi sostituirla con il MIDI importato?"
+            if proj.has_voice():
+                msg += "\n\nLa voce già registrata resterà, ma potrebbe non essere più a tempo."
+            if not self.confirm(msg):
+                return
+        self.engine.stop()
+        notes = proj.import_midi(Path(path), overwrite=True)
+        self._piano_cache = None
+        self.sp_bpm.blockSignals(True)
+        self.sp_bpm.setValue(int(round(proj.settings.bpm)))
+        self.sp_bpm.blockSignals(False)
+        self.statusBar().showMessage(f"MIDI importato: {notes} note (la batteria viene ignorata).", 6000)
+        self._offer_sync()
+
+    @guarded
+    def import_audio(self) -> None:
+        if self._recording() or self._busy:
+            raise UserError("Ferma prima la registrazione o l'ascolto in corso.")
+        proj = self.project
+        path, _ = QFileDialog.getOpenFileName(self, "Importa un audio (canzone o base)", str(documents_dir()),
+                                              AUDIO_FILTER + ";;Tutti i file (*.*)")
+        if not path:
+            return
+        if proj.has_base() and not self.confirm(
+                f"Il progetto ha già un audio importato («{proj.settings.base_name}»). Vuoi sostituirlo?"):
+            return
+        self.engine.stop()
+        src = Path(path)
+        sr = self.synth.samplerate
+        self._begin_busy(f"Importo «{src.name}»…")
+
+        def work():
+            audio = read_audio(src, sr)
+            proj.save_base(audio, sr, src.name, overwrite=True)
+            return audio
+
+        def done(audio):
+            self._end_busy()
+            self._base_cache = ((str(proj.base_path), proj.base_path.stat().st_mtime_ns, sr), audio)
+            self._update_base_ui()
+            self.statusBar().showMessage(f"Audio importato: {src.name} ({audio.shape[0] / sr:.0f} s).", 6000)
+            self._offer_sync()
+
+        run_task(work, on_done=done, on_error=self._busy_failed)
+
+    def _offer_sync(self) -> None:
+        proj = self.project
+        if proj.has_base() and (proj.has_piano() or proj.has_voice()):
+            if self.confirm("Ora nel progetto ci sono sia il piano sia l'audio importato.\n"
+                            "Vuoi aprire «Sincronizza tracce» per metterli a tempo?"):
+                self.open_sync()
+        else:
+            self._go_step(2 if proj.has_base() else 0)
+
+    @guarded
+    def remove_audio(self) -> None:
+        proj = self.project
+        if not proj.has_base():
+            raise UserError("In questo progetto non c'è un audio importato.")
+        if self._recording():
+            raise UserError("Ferma prima la registrazione.")
+        if not self.confirm(f"Togliere «{proj.settings.base_name}» dal progetto?\nIl file originale non viene toccato."):
+            return
+        self.engine.stop()
+        proj.remove_base()
+        self._base_cache = None
+        self._update_base_ui()
+
+    @guarded
+    def open_sync(self) -> None:
+        if self._recording() or self._busy:
+            raise UserError("Ferma prima la registrazione o l'ascolto in corso.")
+        proj = self.project
+        tracks = sum((proj.has_piano(), proj.has_voice(), proj.has_base()))
+        if tracks < 2:
+            raise UserError("Per sincronizzare servono almeno due tracce: per esempio il piano "
+                            "(registrato o importato da un MIDI) e un audio importato, oppure piano e voce.")
+        if proj.has_piano() and self.synth.font is None:
+            raise UserError("Manca il suono del pianoforte.")
+        self._require_audio()
+        self.engine.stop()
+        self._begin_busy("Preparo le tracce…")
+
+        def work():
+            piano = self._render_piano() if proj.has_piano() else None
+            events = proj.load_piano_take() if proj.has_piano() else []
+            voice = self._voice_audio()
+            base = self._base_audio() if proj.has_base() else None
+            return piano, events, voice, base
+
+        run_task(work, on_done=self._show_sync, on_error=self._busy_failed)
+
+    def _show_sync(self, data) -> None:
+        self._end_busy()
+        piano, events, voice, base = data
+        proj = self.project
+        s = proj.settings
+        settings = proj.mix_settings(self.cfg.voice_manual_offset_ms)
+        fixed = s.voice_auto_offset_ms + self.cfg.voice_manual_offset_ms
+
+        def render_at(speed):
+            from wintrypiano.core.align import stretch_events
+            return self.synth.render(stretch_events(events, speed))
+
+        dlg = SyncDialog(self, samplerate=self.synth.samplerate, engine=self.engine, piano_audio=piano,
+                         piano_events=events, voice_audio=voice, base_audio=base, settings=settings,
+                         voice_fixed_ms=fixed, voice_user_ms=s.voice_user_offset_ms,
+                         render_piano=render_at, base_name=s.base_name)
+        if dlg.exec() != SyncDialog.Accepted:
+            return
+        speed = dlg.piano_speed
+        if abs(speed - 1.0) > 1e-6:
+            msg = f"Cambio la velocità del piano al {speed * 100:.1f}% e riscrivo piano.mid."
+            if proj.has_voice():
+                msg += "\nAttenzione: la voce non viene accelerata o rallentata."
+            if self.confirm(msg + "\nContinuo?"):
+                proj.change_piano_speed(speed)
+                self._piano_cache = None
+                self.sp_bpm.blockSignals(True)
+                self.sp_bpm.setValue(int(round(min(260, max(30, s.bpm)))))
+                self.sp_bpm.blockSignals(False)
+        s.base_offset_ms = float(dlg.base_offset_ms)
+        s.voice_user_offset_ms = float(dlg.voice_user_offset_ms)
+        proj.save()
+        self._update_base_ui()
+        self.statusBar().showMessage("Sincronizzazione salvata nel progetto.", 5000)
 
     @guarded
     def stop_all(self) -> None:
@@ -1085,7 +1329,8 @@ class MainWindow(QMainWindow):
         busy = self._busy > 0
         self.btn_rec_piano.setEnabled(not rec and not busy)
         self.btn_rec_voice.setEnabled(not rec and not busy)
-        for b in (self.btn_play_piano, self.btn_play_voice, self.btn_play_mix, self.btn_wav, self.btn_midi):
+        for b in (self.btn_play_piano, self.btn_play_voice, self.btn_play_mix, self.btn_wav, self.btn_midi,
+                  self.btn_sync):
             b.setEnabled(not rec and not busy)
         self.btn_mp3.setEnabled(not rec and not busy and self.mp3_hint.text() == "")
         for b in self.step_buttons:

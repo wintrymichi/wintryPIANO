@@ -26,6 +26,7 @@ log = logging.getLogger(__name__)
 PROJECT_FILE = "progetto.json"
 PIANO_FILE = "piano.mid"
 VOICE_FILE = "voce.wav"
+BASE_FILE = "base.flac"
 RECOVERY_DIR = ".recovery"
 FORMAT_VERSION = 1
 
@@ -42,6 +43,11 @@ class ProjectSettings:
     voice_volume: float = 0.9
     voice_reverb: bool = False
     voice_auto_offset_ms: float = 0.0
+    voice_user_offset_ms: float = 0.0   # correzione fatta a mano in «Sincronizza tracce»
+    base_name: str = ""                  # nome del file audio importato
+    base_volume: float = 0.8
+    base_offset_ms: float = 0.0
+    base_during_rec: bool = True         # la base suona mentre registri piano e voce
     sample_rate: int = 48000
     soundfont: str = ""
     created: str = ""
@@ -76,6 +82,13 @@ class Project:
 
     def has_voice(self) -> bool:
         return self.voice_path.is_file()
+
+    @property
+    def base_path(self) -> Path:
+        return self.folder / BASE_FILE
+
+    def has_base(self) -> bool:
+        return self.base_path.is_file()
 
     # ------------------------------------------------------------- creazione
     @classmethod
@@ -139,12 +152,14 @@ class Project:
             raise TakeExistsError("voce")
         tmp = self.voice_path.with_name(VOICE_FILE + ".tmp")
         try:
+            audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
             sf.write(str(tmp), audio, samplerate, subtype="FLOAT", format="WAV")
             tmp.replace(self.voice_path)
         except Exception as exc:
             tmp.unlink(missing_ok=True)
             raise UserError("Non riesco a salvare la registrazione della voce.") from exc
         self.settings.voice_auto_offset_ms = float(auto_offset_ms)
+        self.settings.voice_user_offset_ms = 0.0  # nuova take: la correzione a mano non vale più
         self.save()
         return self.voice_path
 
@@ -158,11 +173,70 @@ class Project:
             raise UserError("Il file della voce è danneggiato o non leggibile.") from exc
         return audio[:, 0].copy(), sr
 
+    def save_base(self, audio: np.ndarray, samplerate: int, name: str, overwrite: bool = False) -> Path:
+        """Salva l'audio importato (stereo) come base del progetto."""
+        if self.has_base() and not overwrite:
+            raise TakeExistsError("audio importato")
+        tmp = self.base_path.with_name(BASE_FILE + ".tmp")
+        try:
+            sf.write(str(tmp), np.clip(audio, -1.0, 1.0), samplerate, subtype="PCM_24", format="FLAC")
+            tmp.replace(self.base_path)
+        except Exception as exc:
+            tmp.unlink(missing_ok=True)
+            raise UserError("Non riesco a salvare l'audio importato nel progetto.") from exc
+        self.settings.base_name = name
+        self.settings.base_offset_ms = 0.0
+        self.save()
+        return self.base_path
+
+    def load_base(self):
+        """Ritorna (audio stereo float32, samplerate) oppure (None, 0)."""
+        if not self.has_base():
+            return None, 0
+        try:
+            audio, sr = sf.read(str(self.base_path), dtype="float32", always_2d=True)
+        except Exception as exc:
+            raise UserError("L'audio importato è danneggiato o non leggibile.") from exc
+        return audio, sr
+
+    def remove_base(self) -> None:
+        self.base_path.unlink(missing_ok=True)
+        self.settings.base_name = ""
+        self.settings.base_offset_ms = 0.0
+        self.save()
+
+    def import_midi(self, path: Path, overwrite: bool = False, trim_start: bool = False) -> int:
+        """Importa un file MIDI come take del piano. Ritorna il numero di note."""
+        from wintrypiano.core.midi_import import import_events
+
+        if self.has_piano() and not overwrite:
+            raise TakeExistsError("piano")
+        events, bpm = import_events(Path(path), trim_start=trim_start)
+        notes = sum(1 for e in events if e[1] == 0)
+        self.settings.bpm = float(min(260, max(30, round(bpm))))
+        save_midi(events, self.piano_path, bpm=bpm)
+        self.save()
+        return notes
+
+    def change_piano_speed(self, speed: float) -> None:
+        """Rende la take del piano più veloce (speed > 1) o più lenta, riscrivendo piano.mid."""
+        from wintrypiano.core.align import stretch_events
+
+        if speed <= 0:
+            raise UserError("Velocità non valida.")
+        if abs(speed - 1.0) < 1e-6 or not self.has_piano():
+            return
+        events = stretch_events(self.load_piano_take(), speed)
+        self.settings.bpm = round(self.settings.bpm * speed, 2)
+        save_midi(events, self.piano_path, bpm=self.settings.bpm)
+        self.save()
+
     def mix_settings(self, manual_offset_ms: float = 0.0) -> MixSettings:
         s = self.settings
         return MixSettings(piano_volume=s.piano_volume, piano_reverb=s.piano_reverb,
                            voice_volume=s.voice_volume, voice_reverb=s.voice_reverb,
-                           voice_offset_ms=s.voice_auto_offset_ms + manual_offset_ms)
+                           voice_offset_ms=s.voice_auto_offset_ms + s.voice_user_offset_ms + manual_offset_ms,
+                           base_volume=s.base_volume, base_offset_ms=s.base_offset_ms)
 
 
 def default_project_folder(base: Path) -> Path:

@@ -38,6 +38,10 @@ La licenza CC BY 3.0 permette di ridistribuirli citando l'autore. Non sono nel r
 - **Passo 1**: suona, poi usa Registra, Stop e Riascolta. Hai volume, riverbero, metronomo con i bpm e un conto alla rovescia di 4 battiti. La take si salva come `piano.mid`, quindi puoi cambiare suono senza risuonare. Il metronomo non finisce mai nell'export. Con **«Canta mentre suoni»** il microfono si registra nella stessa take: piano in `piano.mid`, voce in `voce.wav`, già allineati (usa le cuffie, così il piano non rientra nel microfono).
 - **Passo 2**: con le cuffie, Registra voce fa ripartire il piano dall'inizio. Vedi il livello del microfono, con un avviso se satura. L'ascolto del microfono in cuffia è spento di default. Puoi rifare la voce senza toccare il piano.
 - **Passo 3**: imposti volume di piano e voce e il riverbero sulla voce, ascolti il mix ed esporti in WAV (24 bit), MP3, oppure il solo piano in MIDI (`.mid`). Il mix viene abbassato da solo se supererebbe -1 dBFS, così non c'è clipping.
+- **Importare un MIDI o una canzone** (menu *File*):
+  - *Importa MIDI come piano* usa un file `.mid` come take del piano: suona col pianoforte scelto, tutti i canali tranne la batteria. Il bpm viene preso dal file.
+  - *Importa audio (MP3, WAV…)* aggiunge una canzone o una base come traccia separata (MP3, WAV, FLAC, OGG, e con ffmpeg anche M4A). Ha il suo volume al passo 3, finisce nel mix e nell'export, e suona mentre registri il piano o la voce (si può spegnere al passo 1).
+  - *Sincronizza tracce* mostra le forme d'onda di piano, voce e audio importato. Il piano è il riferimento: le altre tracce si trascinano col mouse (Maiusc per lo spostamento fine) o si spostano in millisecondi, e si ascolta da qualsiasi punto. *Allinea automaticamente* confronta le note del MIDI con gli attacchi dell'audio e trova lo spostamento giusto; con *Correggi anche la velocità del MIDI* trova anche la velocità (dall'80% al 125%), utile quando il MIDI ha un tempo un po' diverso dalla registrazione.
 - **Impostazioni**: driver, WASAPI esclusivo, buffer audio con la latenza stimata in ms, correzione manuale della voce in ms e volume del metronomo.
 
 ### Progetti
@@ -48,6 +52,7 @@ Ogni progetto è una cartella (di default in `Documenti\Wintry Piano`):
 progetto.json   impostazioni (bpm, volumi, riverberi, compensazione latenza…)
 piano.mid       take del piano
 voce.wav        take della voce (mono, senza effetti)
+base.flac       audio importato (se c'è), convertito una volta sola
 .recovery/      file scritti durante la registrazione
 ```
 
@@ -85,7 +90,7 @@ DLL e moduli binari da includere (PyInstaller li prende da solo tramite i suoi h
 .venv\Scripts\python -m pytest
 ```
 
-I test non richiedono hardware e coprono progetto, salvataggio MIDI, render del soundfont (con un piccolo `.sf2` generato al volo), mix, export, recupero dopo un crash, motore audio (conto alla rovescia, metronomo, compensazione della latenza, monitor) e modalità demo. `test_gui_smoke.py` prova l'intero flusso nella GUI e parte solo se c'è un dispositivo audio.
+I test non richiedono hardware e coprono progetto, salvataggio MIDI, render del soundfont (con un piccolo `.sf2` generato al volo), mix, export, import di MIDI e audio, allineamento automatico (anche della velocità), recupero dopo un crash, motore audio (conto alla rovescia, metronomo, compensazione della latenza, monitor) e modalità demo. `test_gui_smoke.py` prova l'intero flusso nella GUI e parte solo se c'è un dispositivo audio.
 
 Struttura del codice:
 
@@ -93,7 +98,8 @@ Struttura del codice:
 wintrypiano/
   audio/      dispositivi (ASIO/WASAPI) e motore in tempo reale
   midi/       ingresso MIDI USB e modalità demo
-  core/       sintetizzatore, riverbero, metronomo, MIDI, mix, export, progetto, recupero
+  core/       sintetizzatore, riverbero, metronomo, MIDI, mix, export, progetto, recupero,
+              import di audio e MIDI, allineamento automatico
   soundfonts/ catalogo e download dei pianoforti
   gui/        finestra principale, impostazioni, scelta del suono
 ```

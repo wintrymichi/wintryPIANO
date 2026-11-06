@@ -185,10 +185,13 @@ class AudioEngine:
     def note_event(self, kind: int, a: int, b: int) -> None:
         self.midi_queue.append((kind, a, b))
 
-    def start_piano_recording(self, bpm: float, count_in_beats: int, with_voice: bool = False) -> None:
+    def start_piano_recording(self, bpm: float, count_in_beats: int, with_voice: bool = False,
+                              backing: np.ndarray | None = None) -> None:
         """Registra il piano (MIDI). Con ``with_voice`` registra anche il microfono
         nella stessa take, allineato al piano come nella registrazione della voce."""
         self._with_voice = with_voice
+        self._playback = None if backing is None else np.ascontiguousarray(backing, dtype=np.float32)
+        self._play_pos = 0
         self._capture = False
         self._dac_time = None
         self._adc_time = None
@@ -360,7 +363,7 @@ class AudioEngine:
 
         # 2) riproduzione (riascolto o piano sotto la voce)
         pb = self._playback
-        if pb is not None and mode in (PLAYING, REC_VOICE):
+        if pb is not None and mode in (PLAYING, REC_VOICE, REC_PIANO):
             if mode == REC_VOICE and not self._capture:
                 self._dac_time = dac_time
                 self._capture = True

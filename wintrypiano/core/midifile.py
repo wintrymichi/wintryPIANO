@@ -41,8 +41,12 @@ def save_midi(events, path: Path, bpm: float = 120.0) -> None:
     tmp.replace(path)
 
 
-def load_midi(path: Path):
-    """Legge un file MIDI e ritorna (eventi, bpm)."""
+def load_midi(path: Path, skip_drums: bool = False):
+    """Legge un file MIDI e ritorna (eventi, bpm).
+
+    Con ``skip_drums`` ignora il canale 10 (batteria), che suonato col pianoforte
+    darebbe note sbagliate. Tutti gli altri canali finiscono sul pianoforte.
+    """
     from wintrypiano.core.events import from_mido
 
     try:
@@ -59,6 +63,8 @@ def load_midi(path: Path):
             if msg.type == "set_tempo" and not tempo_found:
                 bpm = mido.tempo2bpm(msg.tempo)
                 tempo_found = True
+            continue
+        if skip_drums and getattr(msg, "channel", None) == 9:
             continue
         ev = from_mido(msg)
         if ev is not None:
