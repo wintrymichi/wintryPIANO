@@ -5,7 +5,7 @@ import pytest
 import soundfile as sf
 
 from wintrypiano.core.events import NOTE_OFF, NOTE_ON
-from wintrypiano.core.export import write_mp3, write_wav
+from wintrypiano.core.export import find_ffmpeg, write_mp3, write_wav
 from wintrypiano.core.mixer import TARGET_PEAK, MixSettings, mix_tracks, prevent_clipping, shift
 from wintrypiano.core.project import Project
 from wintrypiano.errors import UserError
@@ -85,7 +85,7 @@ def test_mp3_without_ffmpeg_gives_clear_error(tmp_path, monkeypatch):
     assert "ffmpeg" in e.value.message
 
 
-@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg non installato")
+@pytest.mark.skipif(find_ffmpeg() is None, reason="ffmpeg non installato")
 def test_mp3_export(tmp_path):
     a = (np.sin(np.arange(SR) / 20) * 0.5).astype(np.float32)
     out = write_mp3(np.stack([a, a], 1), SR, tmp_path / "x.mp3")
