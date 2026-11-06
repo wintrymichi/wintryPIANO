@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+build/
+dist/
+*.spec
+.pytest_cache/
+# I soundfont sono grandi: si scaricano con l'installer o con
+# python -m wintrypiano.soundfonts.download --dest assets/soundfonts
+assets/soundfonts/*.sf2
+assets/soundfonts/*.sf3
+assets/soundfonts/*.txt

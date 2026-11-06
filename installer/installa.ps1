@@ -1,0 +1,144 @@
+﻿# Installer di Wintry Piano per Windows 10/11.
+# Uso: doppio clic su installa.bat (oppure: powershell -ExecutionPolicy Bypass -File installer\installa.ps1)
+# Opzioni: -SoloYDP (scarica solo il pianoforte leggero)  -SenzaFFmpeg  -SenzaCollegamento
+
+param(
+    [switch]$SoloYDP,
+    [switch]$SenzaFFmpeg,
+    [switch]$SenzaCollegamento
+)
+
+$ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+$Root = Split-Path -Parent $PSScriptRoot
+Set-Location $Root
+$PyVersion = "3.12.10"
+
+function Passo($n, $testo) { Write-Host ""; Write-Host "[$n/6] $testo" -ForegroundColor Cyan }
+function Ok($testo) { Write-Host "      OK  $testo" -ForegroundColor Green }
+function Avviso($testo) { Write-Host "      !   $testo" -ForegroundColor Yellow }
+function Fallito($testo) {
+    Write-Host ""
+    Write-Host "ERRORE: $testo" -ForegroundColor Red
+    Write-Host "Puoi rilanciare installa.bat: i passi già completati vengono saltati."
+    exit 1
+}
+
+function Trova-Python312 {
+    $candidati = @()
+    if (Get-Command py -ErrorAction SilentlyContinue) {
+        try {
+            $p = & py -3.12 -c "import sys; print(sys.executable)" 2>$null
+            if ($LASTEXITCODE -eq 0 -and $p) { $candidati += $p.Trim() }
+        } catch {}
+    }
+    $candidati += "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe"
+    $candidati += "$env:ProgramFiles\Python312\python.exe"
+    foreach ($c in $candidati) {
+        if ($c -and (Test-Path $c)) {
+            $v = & $c -c "import sys, struct; print('%d.%d %d' % (sys.version_info[0], sys.version_info[1], struct.calcsize('P')*8))"
+            if ($v -eq "3.12 64") { return $c }
+        }
+    }
+    return $null
+}
+
+Write-Host "=============================================" -ForegroundColor Cyan
+Write-Host "        Installazione di wintry piano" -ForegroundColor Cyan
+Write-Host "=============================================" -ForegroundColor Cyan
+Write-Host "Cartella: $Root"
+
+# ---------------------------------------------------------------- 1. Python
+Passo 1 "Python 3.12 (64 bit)"
+$python = Trova-Python312
+if (-not $python) {
+    $installato = $false
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        Write-Host "      Installo Python 3.12 con winget..."
+        & winget install -e --id Python.Python.3.12 --scope user --silent --accept-package-agreements --accept-source-agreements | Out-Host
+        $python = Trova-Python312
+        if ($python) { $installato = $true }
+    }
+    if (-not $installato) {
+        $url = "https://www.python.org/ftp/python/$PyVersion/python-$PyVersion-amd64.exe"
+        $exe = Join-Path $env:TEMP "python-$PyVersion-amd64.exe"
+        Write-Host "      Scarico Python $PyVersion da python.org..."
+        try { Invoke-WebRequest -Uri $url -OutFile $exe -UseBasicParsing } catch { Fallito "download di Python non riuscito. Controlla la connessione." }
+        Write-Host "      Installo Python (solo per questo utente)..."
+        $proc = Start-Process -FilePath $exe -ArgumentList "/quiet InstallAllUsers=0 PrependPath=0 Include_launcher=1 Include_test=0" -Wait -PassThru
+        if ($proc.ExitCode -ne 0) { Fallito "l'installazione di Python è terminata con codice $($proc.ExitCode)." }
+        $python = Trova-Python312
+    }
+    if (-not $python) { Fallito "non trovo Python 3.12 dopo l'installazione. Installalo da python.org e rilancia." }
+}
+Ok $python
+
+# ---------------------------------------------------------- 2. ambiente .venv
+Passo 2 "Ambiente Python del programma (.venv)"
+$venvPy = Join-Path $Root ".venv\Scripts\python.exe"
+if (-not (Test-Path $venvPy)) {
+    & $python -m venv (Join-Path $Root ".venv")
+    if ($LASTEXITCODE -ne 0) { Fallito "non riesco a creare l'ambiente .venv." }
+}
+Ok ".venv pronto"
+
+# ---------------------------------------------------------------- 3. librerie
+Passo 3 "Librerie (PySide6, mido, python-rtmidi, sounddevice, soundfile, numpy, tinysoundfont)"
+& $venvPy -m pip install --disable-pip-version-check --upgrade pip | Out-Null
+& $venvPy -m pip install --disable-pip-version-check --only-binary=:all: -r (Join-Path $Root "requirements.txt")
+if ($LASTEXITCODE -ne 0) { Fallito "installazione delle librerie non riuscita." }
+& $venvPy -c "import PySide6, mido, rtmidi, sounddevice, soundfile, numpy, tinysoundfont"
+if ($LASTEXITCODE -ne 0) { Fallito "le librerie sono installate ma non si caricano." }
+Ok "librerie installate"
+
+# ------------------------------------------------------------------ 4. ffmpeg
+Passo 4 "ffmpeg (per esportare in MP3)"
+if ($SenzaFFmpeg) {
+    Avviso "saltato su richiesta: potrai esportare solo in WAV"
+} elseif (Get-Command ffmpeg -ErrorAction SilentlyContinue) {
+    Ok "già presente"
+} elseif (Get-Command winget -ErrorAction SilentlyContinue) {
+    & winget install -e --id Gyan.FFmpeg --silent --accept-package-agreements --accept-source-agreements | Out-Host
+    if ($LASTEXITCODE -eq 0) { Ok "ffmpeg installato" } else { Avviso "ffmpeg non installato: l'export WAV funziona comunque" }
+} else {
+    Avviso "winget non disponibile: installa ffmpeg a mano per l'MP3 (il WAV funziona comunque)"
+}
+
+# --------------------------------------------------- 5. suoni del pianoforte
+Passo 5 "Suoni del pianoforte a coda (licenza CC BY 3.0, FreePats)"
+if ($SoloYDP) {
+    & $venvPy -m wintrypiano.soundfonts.download ydp
+} else {
+    Write-Host "      Salamander Grand Piano (~296 MB) e YDP Grand Piano (~36 MB): può volerci qualche minuto."
+    & $venvPy -m wintrypiano.soundfonts.download
+}
+if ($LASTEXITCODE -ne 0) {
+    Avviso "download dei suoni non completato. Rilancia installa.bat, oppure scegli il suono dal programma."
+} else {
+    Ok "suoni installati in $env:APPDATA\WintryPiano\soundfonts"
+}
+
+# ------------------------------------------------------------ 6. collegamento
+Passo 6 "Collegamento sul desktop"
+if ($SenzaCollegamento) {
+    Avviso "saltato"
+} else {
+    try {
+        $shell = New-Object -ComObject WScript.Shell
+        $lnk = $shell.CreateShortcut((Join-Path ([Environment]::GetFolderPath("Desktop")) "Wintry Piano.lnk"))
+        $lnk.TargetPath = Join-Path $Root ".venv\Scripts\pythonw.exe"
+        $lnk.Arguments = '"' + (Join-Path $Root "avvia.py") + '"'
+        $lnk.WorkingDirectory = $Root
+        $lnk.Description = "wintry piano"
+        $lnk.Save()
+        Ok "creato 'Wintry Piano' sul desktop"
+    } catch {
+        Avviso "non riesco a creare il collegamento: avvia il programma con avvia.py"
+    }
+}
+
+Write-Host ""
+Write-Host "Installazione completata." -ForegroundColor Green
+Write-Host "Avvia con il collegamento sul desktop oppure con:  .venv\Scripts\python.exe avvia.py"
+Write-Host "Per provare senza piano collegato:                  .venv\Scripts\python.exe avvia.py --demo"
