@@ -26,12 +26,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Esegui l'installer (solo il suono leggero, ffmpeg da zip come su un PC senza winget)
+      - name: Esegui l'installer (solo il suono leggero, Python e ffmpeg da zip come su un PC senza winget)
         shell: pwsh
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File installer\installa.ps1 -SoloYDP -FFmpegZip -SenzaCollegamento
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File installer\installa.ps1 -SoloYDP -FFmpegZip -PythonNuGet -SenzaCollegamento
       - name: Controlla il risultato
         shell: pwsh
         run: |
+          .venv\Scripts\python.exe -c "import sys; print(sys.version, sys.base_prefix); assert 'WintryPiano' in sys.base_prefix"
           .venv\Scripts\python.exe -c "import PySide6, mido, rtmidi, sounddevice, soundfile, tinysoundfont; print('ok')"
           $sf = Join-Path $env:APPDATA "WintryPiano\soundfonts\YDP-GrandPiano.sf2"
           if (-not (Test-Path $sf)) { throw "soundfont non scaricato" }

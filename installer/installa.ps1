@@ -1,11 +1,13 @@
 ﻿# Installer di Wintry Piano per Windows 10/11.
 # Uso: doppio clic su installa.bat (oppure: powershell -ExecutionPolicy Bypass -File installer\installa.ps1)
-# Opzioni: -SoloYDP (scarica solo il pianoforte leggero)  -SenzaFFmpeg  -SenzaCollegamento  -FFmpegZip
+# Opzioni: -SoloYDP (scarica solo il pianoforte leggero)  -SenzaFFmpeg  -SenzaCollegamento  -FFmpegZip  -PythonNuGet
 
 param(
     [switch]$SoloYDP,
     [switch]$SenzaFFmpeg,
-    [switch]$SenzaCollegamento
+    [switch]$SenzaCollegamento,
+    [switch]$FFmpegZip,
+    [switch]$PythonNuGet
 )
 
 $ErrorActionPreference = "Stop"
@@ -14,6 +16,25 @@ $ProgressPreference = "SilentlyContinue"
 $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
 $PyVersion = "3.12.10"
+$NuGetDir = Join-Path $env:LOCALAPPDATA "WintryPiano\python312"
+$NuGetPython = Join-Path $NuGetDir "tools\python.exe"
+
+function Installa-PythonNuGet {
+    # Pacchetto ufficiale python.org distribuito su NuGet: un semplice zip, senza Windows Installer.
+    $url = "https://www.nuget.org/api/v2/package/python/$PyVersion"
+    $zip = Join-Path $env:TEMP "python-$PyVersion-nuget.zip"
+    try {
+        Write-Host "      Scarico Python $PyVersion (pacchetto zip ufficiale)..."
+        Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
+        if (Test-Path $NuGetDir) { Remove-Item $NuGetDir -Recurse -Force }
+        Expand-Archive -Path $zip -DestinationPath $NuGetDir -Force
+        Remove-Item $zip -Force -ErrorAction SilentlyContinue
+        return (Test-Path $NuGetPython)
+    } catch {
+        Avviso "installazione di Python dallo zip non riuscita"
+        return $false
+    }
+}
 
 function Passo($n, $testo) { Write-Host ""; Write-Host "[$n/6] $testo" -ForegroundColor Cyan }
 function Ok($testo) { Write-Host "      OK  $testo" -ForegroundColor Green }
@@ -33,6 +54,7 @@ function Trova-Python312 {
             if ($LASTEXITCODE -eq 0 -and $p) { $candidati += $p.Trim() }
         } catch {}
     }
+    $candidati += $NuGetPython
     $candidati += "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe"
     $candidati += "$env:ProgramFiles\Python312\python.exe"
     foreach ($c in $candidati) {
@@ -52,26 +74,36 @@ Write-Host "Cartella: $Root"
 # ---------------------------------------------------------------- 1. Python
 Passo 1 "Python 3.12 (64 bit)"
 $python = Trova-Python312
+if ($PythonNuGet -and -not (Test-Path $NuGetPython)) {
+    if (Installa-PythonNuGet) { $python = $NuGetPython }
+} elseif ($PythonNuGet) {
+    $python = $NuGetPython
+}
 if (-not $python) {
-    $installato = $false
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         Write-Host "      Installo Python 3.12 con winget..."
         & winget install -e --id Python.Python.3.12 --scope user --silent --accept-package-agreements --accept-source-agreements | Out-Host
         $python = Trova-Python312
-        if ($python) { $installato = $true }
     }
-    if (-not $installato) {
-        $url = "https://www.python.org/ftp/python/$PyVersion/python-$PyVersion-amd64.exe"
-        $exe = Join-Path $env:TEMP "python-$PyVersion-amd64.exe"
+}
+if (-not $python) {
+    $url = "https://www.python.org/ftp/python/$PyVersion/python-$PyVersion-amd64.exe"
+    $exe = Join-Path $env:TEMP "python-$PyVersion-amd64.exe"
+    try {
         Write-Host "      Scarico Python $PyVersion da python.org..."
-        try { Invoke-WebRequest -Uri $url -OutFile $exe -UseBasicParsing } catch { Fallito "download di Python non riuscito. Controlla la connessione." }
+        Invoke-WebRequest -Uri $url -OutFile $exe -UseBasicParsing
         Write-Host "      Installo Python (solo per questo utente)..."
         $proc = Start-Process -FilePath $exe -ArgumentList "/quiet InstallAllUsers=0 PrependPath=0 Include_launcher=1 Include_test=0" -Wait -PassThru
-        if ($proc.ExitCode -ne 0) { Fallito "l'installazione di Python è terminata con codice $($proc.ExitCode)." }
-        $python = Trova-Python312
+        if ($proc.ExitCode -ne 0) { Avviso "il setup di Python è terminato con codice $($proc.ExitCode), provo con lo zip" }
+    } catch {
+        Avviso "setup di Python non riuscito, provo con lo zip"
     }
-    if (-not $python) { Fallito "non trovo Python 3.12 dopo l'installazione. Installalo da python.org e rilancia." }
+    $python = Trova-Python312
 }
+if (-not $python) {
+    if (Installa-PythonNuGet) { $python = $NuGetPython }
+}
+if (-not $python) { Fallito "non riesco a installare Python 3.12. Installalo da python.org e rilancia." }
 Ok $python
 
 # ---------------------------------------------------------- 2. ambiente .venv
