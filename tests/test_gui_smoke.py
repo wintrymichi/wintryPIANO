@@ -96,5 +96,9 @@ def test_full_flow_in_demo_mode(tmp_path, sf2_path, monkeypatch):
     data, sr = sf.read(str(out_wav))
     assert sr == win.engine.samplerate and np.abs(data).max() > 0.01
     assert not errors, errors
+    out_mid = tmp_path / "piano_export"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (str(out_mid), "")))
+    win.export_midi()
+    assert (tmp_path / "piano_export.mid").read_bytes() == win.project.piano_path.read_bytes()
     assert Project.open(win.project.folder).settings.name
     win.close()

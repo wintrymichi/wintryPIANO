@@ -37,7 +37,7 @@ La licenza CC BY 3.0 permette di ridistribuirli citando l'autore. Non sono nel r
 - **Dispositivi** (menu): ingresso MIDI, microfono e uscita audio. Il driver migliore viene scelto da solo (ASIO se c'è, altrimenti WASAPI), e le scelte restano salvate al riavvio. Se colleghi o scolleghi il piano MIDI, il programma se ne accorge da solo. Se perdi l'uscita audio, riprova a riaprirla ogni 2 secondi.
 - **Passo 1**: suona, poi usa Registra, Stop e Riascolta. Hai volume, riverbero, metronomo con i bpm e un conto alla rovescia di 4 battiti. La take si salva come `piano.mid`, quindi puoi cambiare suono senza risuonare. Il metronomo non finisce mai nell'export. Con **«Canta mentre suoni»** il microfono si registra nella stessa take: piano in `piano.mid`, voce in `voce.wav`, già allineati (usa le cuffie, così il piano non rientra nel microfono).
 - **Passo 2**: con le cuffie, Registra voce fa ripartire il piano dall'inizio. Vedi il livello del microfono, con un avviso se satura. L'ascolto del microfono in cuffia è spento di default. Puoi rifare la voce senza toccare il piano.
-- **Passo 3**: imposti volume di piano e voce e il riverbero sulla voce, ascolti il mix ed esporti in WAV (24 bit) o MP3. Il mix viene abbassato da solo se supererebbe -1 dBFS, così non c'è clipping.
+- **Passo 3**: imposti volume di piano e voce e il riverbero sulla voce, ascolti il mix ed esporti in WAV (24 bit), MP3, oppure il solo piano in MIDI (`.mid`). Il mix viene abbassato da solo se supererebbe -1 dBFS, così non c'è clipping.
 - **Impostazioni**: driver, WASAPI esclusivo, buffer audio con la latenza stimata in ms, correzione manuale della voce in ms e volume del metronomo.
 
 ### Progetti

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import functools
 import logging
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -313,10 +314,19 @@ class MainWindow(QMainWindow):
         self.btn_stop_mix.clicked.connect(self.stop_all)
         self.btn_wav.clicked.connect(lambda: self.export("wav"))
         self.btn_mp3.clicked.connect(lambda: self.export("mp3"))
-        for b in (self.btn_play_mix, self.btn_stop_mix, self.btn_wav, self.btn_mp3):
+        self.btn_midi = big_button("⤓  Esporta MIDI")
+        self.btn_midi.setToolTip("Salva il piano come file .mid, da aprire in altri programmi")
+        self.btn_midi.clicked.connect(self.export_midi)
+        for b in (self.btn_play_mix, self.btn_stop_mix):
             row.addWidget(b)
         row.addStretch(1)
         lay.addLayout(row)
+        row2 = QHBoxLayout()
+        row2.addStretch(1)
+        for b in (self.btn_wav, self.btn_mp3, self.btn_midi):
+            row2.addWidget(b)
+        row2.addStretch(1)
+        lay.addLayout(row2)
         self.mp3_hint = QLabel("")
         self.mp3_hint.setObjectName("hint")
         self.mp3_hint.setAlignment(Qt.AlignCenter)
@@ -981,6 +991,26 @@ class MainWindow(QMainWindow):
         run_task(work, on_done=done, on_error=self._busy_failed)
 
     @guarded
+    def export_midi(self) -> None:
+        if self._recording() or self._busy:
+            return
+        if not self.project.has_piano():
+            raise UserError("Non c'è ancora una take del piano da esportare.")
+        default = self.project.folder / f"{self.project.settings.name}.mid"
+        path, _ = QFileDialog.getSaveFileName(self, "Esporta il piano in MIDI", str(default), "MIDI (*.mid)")
+        if not path:
+            return
+        out = Path(path)
+        if out.suffix.lower() not in (".mid", ".midi"):
+            out = out.with_suffix(".mid")
+        if out.resolve() != self.project.piano_path.resolve():
+            try:
+                shutil.copyfile(self.project.piano_path, out)
+            except OSError as exc:
+                raise UserError(f"Non riesco a salvare il file «{out.name}».") from exc
+        self.info("Export completato", f"File MIDI salvato:\n{out}")
+
+    @guarded
     def stop_all(self) -> None:
         mode = self.engine.mode
         if mode in (COUNT_IN, REC_PIANO):
@@ -1055,7 +1085,7 @@ class MainWindow(QMainWindow):
         busy = self._busy > 0
         self.btn_rec_piano.setEnabled(not rec and not busy)
         self.btn_rec_voice.setEnabled(not rec and not busy)
-        for b in (self.btn_play_piano, self.btn_play_voice, self.btn_play_mix, self.btn_wav):
+        for b in (self.btn_play_piano, self.btn_play_voice, self.btn_play_mix, self.btn_wav, self.btn_midi):
             b.setEnabled(not rec and not busy)
         self.btn_mp3.setEnabled(not rec and not busy and self.mp3_hint.text() == "")
         for b in self.step_buttons:
