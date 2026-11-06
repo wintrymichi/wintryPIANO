@@ -406,6 +406,8 @@ class MainWindow(QMainWindow):
             except UserError as exc:
                 last_exc = exc
                 continue
+            log.info("audio aperto: uscita %r, microfono %r, %s, %d Hz, buffer %d",
+                     self.engine.output_name, self.engine.input_name, api, sr, self.cfg.block_size)
             self._apply_engine_params()
             self._audio_lost = False
             self._last_cb = -1
@@ -514,7 +516,9 @@ class MainWindow(QMainWindow):
 
     def _update_device_status(self) -> None:
         e = self.engine
-        midi = self.midi.name or ("demo" if self.demo_player else "non collegato")
+        midi = self.midi.name or "non collegato"
+        if self.demo_player:
+            midi = f"demo attiva ({midi})" if self.midi.name else "demo attiva"
         if e.is_open:
             out = f"{e.output_name} ({e.hostapi})"
             lat = f"latenza ≈ {e.estimated_latency_ms():.0f} ms"
