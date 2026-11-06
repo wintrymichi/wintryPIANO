@@ -55,7 +55,7 @@ def _download(url: str, dest: Path, progress: Progress | None, cancel=None) -> N
 
 def _extract_sf2(archive: Path, info: SoundfontInfo, dest_dir: Path, progress: Progress | None) -> Path:
     if progress:
-        progress(0.92, "Estrazione in corso…")
+        progress(0.92, "Estrazione in corso...")
     try:
         with tarfile.open(archive) as tar:
             members = [m for m in tar.getmembers()

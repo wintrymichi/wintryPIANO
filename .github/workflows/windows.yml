@@ -36,3 +36,17 @@ jobs:
           $sf = Join-Path $env:APPDATA "WintryPiano\soundfonts\YDP-GrandPiano.sf2"
           if (-not (Test-Path $sf)) { throw "soundfont non scaricato" }
           .venv\Scripts\python.exe -c "from wintrypiano.core.synth import LoadedFont; import os; f = LoadedFont(os.path.expandvars(r'%APPDATA%\WintryPiano\soundfonts\YDP-GrandPiano.sf2'), 48000); print(f.preset_name)"
+
+  salamander:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Librerie
+        run: python -m pip install "--only-binary=:all:" -r requirements.txt psutil
+      - name: Scarica e carica il pianoforte predefinito (Salamander)
+        run: |
+          python -m wintrypiano.soundfonts.download salamander --dest sf
+          python -c "import os, time, psutil; from wintrypiano.core.synth import LoadedFont, PianoSynth; from wintrypiano.core.events import NOTE_ON, NOTE_OFF; t = time.time(); f = LoadedFont('sf/SalamanderGrandPiano.sf2', 48000); s = PianoSynth(48000); s.set_font(f); a = s.render([(0, NOTE_ON, 60, 100), (1, NOTE_OFF, 60, 0)]); print('preset', f.preset_name, 'file MB', os.path.getsize('sf/SalamanderGrandPiano.sf2') // 2**20, 'RAM MB', psutil.Process().memory_info().rss // 2**20, 'caricamento s', round(time.time() - t, 1), 'picco', float(abs(a).max()))"
