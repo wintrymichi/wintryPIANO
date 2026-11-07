@@ -440,7 +440,9 @@ class AudioEngine:
             got = ring.read_into(m)
             if 0 < got < frames or (got == 0 and self._mon_had_data):
                 self.monitor_underruns += 1
-                if self.monitor_extra < 2 * frames:
+                # WASAPI condiviso consegna il microfono a pacchetti di ~10 ms anche con
+                # buffer piccoli: il margine può arrivare a 2 buffer o 12 ms
+                if self.monitor_extra < max(2 * frames, int(0.012 * self.samplerate)):
                     self.monitor_extra += max(16, frames // 4)
             self._mon_had_data = got > 0
             if got:

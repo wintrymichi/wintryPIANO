@@ -262,5 +262,5 @@ def test_monitor_latency_stays_low(synth):
         for _ in range(3):
             e._process_output(out, B, 0)
     assert e.monitor_ring.available() <= B + e.monitor_extra
-    assert e.monitor_extra <= 2 * B
+    assert e.monitor_extra <= max(2 * B, int(0.012 * SR)) + B
     assert np.allclose(out[:, 0], 0.1)

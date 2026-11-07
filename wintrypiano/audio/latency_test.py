@@ -38,8 +38,8 @@ def try_config(cfg: Config, api: str, block: int, exclusive: bool, seconds: floa
     time.sleep(seconds)
     res = {
         "uscita": eng.output_name, "microfono": eng.input_name or "(non aperto)",
-        "tasto→suono ms": round(eng.estimated_latency_ms(), 1),
-        "voce→cuffie ms": round(eng.monitor_latency_ms(), 1) if eng.input_name else None,
+        "tasto-suono ms": round(eng.estimated_latency_ms(), 1),
+        "voce-cuffie ms": round(eng.monitor_latency_ms(), 1) if eng.input_name else None,
         "xrun": eng.xruns, "interruzioni monitor": eng.monitor_underruns,
         "errori": eng.callback_errors, "microfono_errore": eng.input_error,
     }
@@ -54,6 +54,11 @@ def main(argv=None) -> int:
     ap.add_argument("--anche-esclusivo", action="store_true",
                     help="prova anche WASAPI esclusivo (le altre app non suonano finché Wintry Piano è aperto)")
     args = ap.parse_args(argv)
+    try:  # la console o un file di log potrebbero non essere UTF-8
+        import sys
+        sys.stdout.reconfigure(errors="replace")
+    except Exception:
+        pass
     cfg = Config.load()
     apis = devices.candidate_hostapis(cfg.host_api)
     api = apis[0] if apis else ""
@@ -69,14 +74,14 @@ def main(argv=None) -> int:
         if not r or "errore" in r or r["microfono"] == "(non aperto)":
             continue
         stable = r["xrun"] == 0 and r["errori"] == 0 and r["interruzioni monitor"] <= 2
-        if stable and (best is None or r["voce→cuffie ms"] < best[2]["voce→cuffie ms"]):
+        if stable and (best is None or r["voce-cuffie ms"] < best[2]["voce-cuffie ms"]):
             best = (block, excl, r)
     if best is None:
         print("Nessuna combinazione stabile trovata.")
         return 1
     block, excl, r = best
-    print(f"MIGLIORE: buffer {block}, esclusivo={excl}: tasto→suono {r['tasto→suono ms']} ms, "
-          f"voce→cuffie {r['voce→cuffie ms']} ms")
+    print(f"MIGLIORE: buffer {block}, esclusivo={excl}: tasto-suono {r['tasto-suono ms']} ms, "
+          f"voce-cuffie {r['voce-cuffie ms']} ms")
     if args.salva:
         cfg.block_size = block
         cfg.wasapi_exclusive = excl
