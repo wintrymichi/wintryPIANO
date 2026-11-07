@@ -1,6 +1,6 @@
-"""Prova del flusso completo nella GUI (modalità demo) con un dispositivo audio qualsiasi.
+"""Full GUI flow test (demo mode) with whatever audio device is available.
 
-Viene saltato se non c'è un dispositivo audio o se Qt non è disponibile.
+Skipped if there is no audio device or Qt is not available.
 """
 import os
 import time
@@ -21,7 +21,7 @@ def _have_audio():
 
 
 qt = pytest.importorskip("PySide6.QtWidgets")
-pytestmark = pytest.mark.skipif(not _have_audio(), reason="nessun dispositivo audio")
+pytestmark = pytest.mark.skipif(not _have_audio(), reason="no audio device")
 
 
 def _wait(app, cond, timeout=20.0):
@@ -58,21 +58,21 @@ def test_full_flow_in_demo_mode(tmp_path, sf2_path, monkeypatch):
     assert _wait(app, lambda: win.synth.font is not None and win.project is not None)
     if not win.engine.is_open:
         win.close()
-        pytest.skip("il dispositivo audio di questa macchina non si apre")
+        pytest.skip("the audio device of this machine does not open")
 
     win.cb_countin.setChecked(False)
     win.record_piano()
     assert win.engine.mode == REC_PIANO
     assert _wait(app, lambda: win.engine.recording_seconds() > 2.5)
-    # il dispositivo di prova può girare più veloce del tempo reale: aspetto anche
-    # che il piano demo (che suona in tempo reale) abbia suonato almeno due note
+    # the test device may run faster than real time: also wait until the demo
+    # piano (which plays in real time) has played at least two notes
     assert _wait(app, lambda: sum(1 for e in win.writer.events if e[1] == 0) >= 2)
     win.stop_all()
     assert win.project.has_piano(), errors
     events = win.project.load_piano_take()
     assert any(e[1] == 0 for e in events)
 
-    # la voce: con il dispositivo di prova l'ingresso è silenzioso ma il flusso è lo stesso
+    # the voice: with the test device the input is silent but the flow is the same
     if win.engine.input_name:
         win.record_voice()
         assert _wait(app, lambda: win.engine.mode == REC_VOICE)
@@ -80,7 +80,7 @@ def test_full_flow_in_demo_mode(tmp_path, sf2_path, monkeypatch):
         win.stop_all()
         assert _wait(app, lambda: win.project.has_voice() and not win._busy)
 
-    # suona e canta nella stessa take
+    # play and sing in the same take
     if win.engine.input_name:
         win.cb_sing.setChecked(True)
         win.record_piano()
@@ -105,7 +105,7 @@ def test_full_flow_in_demo_mode(tmp_path, sf2_path, monkeypatch):
 
 
 def test_import_and_sync(tmp_path, sf2_path, monkeypatch, synth):
-    """Importa un MIDI e un audio (lo stesso brano, in ritardo), allinea e ascolta."""
+    """Import a MIDI and an audio file (the same song, delayed), align and listen."""
     from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMessageBox
 
     from wintrypiano.audio.engine import PLAYING, REC_PIANO
@@ -124,9 +124,9 @@ def test_import_and_sync(tmp_path, sf2_path, monkeypatch, synth):
     monkeypatch.setattr(QMessageBox, "exec", lambda self: 0)
 
     events = demo_events(bpm=110, bars=6, seed=5)
-    save_midi(events, tmp_path / "brano.mid", bpm=110)
-    song = synth.render([(t + 0.8, k, a, b) for t, k, a, b in events])   # l'audio parte 0,8 s dopo
-    sf.write(tmp_path / "brano.wav", song * (0.7 / np.abs(song).max()), 48000)
+    save_midi(events, tmp_path / "song.mid", bpm=110)
+    song = synth.render([(t + 0.8, k, a, b) for t, k, a, b in events])   # the audio starts 0.8 s later
+    sf.write(tmp_path / "song.wav", song * (0.7 / np.abs(song).max()), 48000)
 
     cfg = Config(soundfont_path=str(sf2_path), block_size=256)
     win = mw.MainWindow(cfg)
@@ -134,7 +134,7 @@ def test_import_and_sync(tmp_path, sf2_path, monkeypatch, synth):
     assert _wait(app, lambda: win.synth.font is not None and win.project is not None)
     if not win.engine.is_open:
         win.close()
-        pytest.skip("il dispositivo audio di questa macchina non si apre")
+        pytest.skip("the audio device of this machine does not open")
 
     seen = {}
 
@@ -147,7 +147,7 @@ def test_import_and_sync(tmp_path, sf2_path, monkeypatch, synth):
         dlg.auto_align()
         assert _wait(app, lambda: dlg.btn_auto.isEnabled(), timeout=30)
         seen["auto"] = dlg.base_offset_ms
-        # ritocco a mano e ascolto da un punto
+        # manual nudge and playback from a point
         dlg.spins["base"].setValue(dlg.spins["base"].value() + 10)
         dlg.view.cursor_s = 1.0
         dlg.preview()
@@ -157,18 +157,18 @@ def test_import_and_sync(tmp_path, sf2_path, monkeypatch, synth):
         return QDialog.Accepted
 
     monkeypatch.setattr(sync_dialog.SyncDialog, "exec", drive)
-    files = iter([str(tmp_path / "brano.mid"), str(tmp_path / "brano.wav")])
+    files = iter([str(tmp_path / "song.mid"), str(tmp_path / "song.wav")])
     monkeypatch.setattr(QFileDialog, "getOpenFileName", staticmethod(lambda *a, **k: (next(files), "")))
 
     win.import_midi()
     assert win.project.has_piano() and win.sp_bpm.value() == 110, errors
-    win.import_audio()   # alla fine propone la sincronizzazione (confermata) e apre il dialogo
+    win.import_audio()   # at the end it offers to sync (confirmed) and opens the dialog
     assert _wait(app, lambda: "dialog" in seen and not win._busy, timeout=60), errors
     assert seen["auto"] == pytest.approx(-800, abs=20)
     assert win.project.settings.base_offset_ms == pytest.approx(seen["auto"] + 10)
     assert not win.base_row.isHidden() and win.project.has_base()
 
-    # la base suona mentre registro il piano
+    # the backing plays while recording the piano
     win.cb_countin.setChecked(False)
     win.record_piano()
     assert win.engine.mode == REC_PIANO and win.engine._playback is not None

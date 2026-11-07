@@ -5,7 +5,7 @@ build/
 dist/
 *.spec
 .pytest_cache/
-# I soundfont sono grandi: si scaricano con l'installer o con
+# The soundfonts are large: they are downloaded by the installer or with
 # python -m wintrypiano.soundfonts.download --dest assets/soundfonts
 assets/soundfonts/*.sf2
 assets/soundfonts/*.sf3

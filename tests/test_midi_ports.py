@@ -1,4 +1,4 @@
-"""Ingressi MIDI senza hardware: mido viene sostituito da un finto backend."""
+"""MIDI inputs without hardware: mido is replaced by a fake backend."""
 import mido
 import pytest
 
@@ -55,10 +55,10 @@ def test_hotplug_with_all_inputs(fake):
     m = ports.MidiInput(lambda *ev: None)
     m.open(ports.ALL)
     fake.names.remove("ESI MIDIMATE eX 0")
-    assert "scollegato" in m.poll()
+    assert "disconnected" in m.poll()
     assert list(m.ports) == ["MIDIIN2 (ESI MIDIMATE eX) 1"]
     fake.names.append("ESI MIDIMATE eX 0")
-    assert "collegato" in m.poll()
+    assert "connected" in m.poll()
     assert len(m.ports) == 2
 
 
@@ -78,8 +78,8 @@ def test_busy_port_gives_clear_error(fake):
     m = ports.MidiInput(lambda *ev: None)
     with pytest.raises(UserError) as e:
         m.open("ESI MIDIMATE eX 0")
-    assert "altro programma" in e.value.message
-    m.open(ports.ALL)  # con "tutti" la porta libera si apre comunque
+    assert "another program" in e.value.message
+    m.open(ports.ALL)  # with "all" the free port opens anyway
     assert list(m.ports) == ["MIDIIN2 (ESI MIDIMATE eX) 1"]
 
 
@@ -99,4 +99,4 @@ def test_old_settings_switch_to_all_midi_inputs(tmp_path):
     assert Config.load(p).midi_input == ports.ALL
     cfg = Config(midi_input="ESI MIDIMATE eX 0")
     cfg.save(p)
-    assert Config.load(p).midi_input == "ESI MIDIMATE eX 0"  # scelta esplicita nella nuova versione
+    assert Config.load(p).midi_input == "ESI MIDIMATE eX 0"  # explicit choice in the new version

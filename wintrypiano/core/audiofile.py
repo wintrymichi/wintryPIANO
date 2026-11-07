@@ -1,4 +1,4 @@
-"""Lettura di file audio da importare (MP3, WAV, FLAC, OGG…) e ricampionamento."""
+"""Reads audio files to import (MP3, WAV, FLAC, OGG...) and resamples them."""
 from __future__ import annotations
 
 import subprocess
@@ -15,7 +15,7 @@ AUDIO_FILTER = "Audio (*.mp3 *.wav *.flac *.ogg *.aif *.aiff *.m4a *.aac *.wma)"
 
 
 def resample(audio: np.ndarray, src: int, dst: int) -> np.ndarray:
-    """Ricampiona (mono o multicanale) con interpolazione nel dominio della frequenza."""
+    """Resample (mono or multichannel) by interpolation in the frequency domain."""
     if src == dst or audio.shape[0] == 0:
         return audio.astype(np.float32, copy=False)
     n_out = int(round(audio.shape[0] * dst / src))
@@ -38,8 +38,8 @@ def resample(audio: np.ndarray, src: int, dst: int) -> np.ndarray:
 def _read_with_ffmpeg(path: Path) -> tuple[np.ndarray, int]:
     ffmpeg = find_ffmpeg()
     if not ffmpeg:
-        raise UserError(f"Non riesco a leggere «{path.name}». Prova a convertirlo in MP3 o WAV, "
-                        "oppure installa ffmpeg (lo fa l'installer).")
+        raise UserError(f"Cannot read \"{path.name}\". Try converting it to MP3 or WAV, "
+                        "or install ffmpeg (the installer does it).")
     with tempfile.TemporaryDirectory() as td:
         wav = Path(td) / "import.wav"
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -48,24 +48,24 @@ def _read_with_ffmpeg(path: Path) -> tuple[np.ndarray, int]:
                                   "-vn", "-acodec", "pcm_f32le", str(wav)],
                                  capture_output=True, timeout=600, creationflags=flags)
         except (OSError, subprocess.TimeoutExpired) as exc:
-            raise UserError(f"Non riesco a leggere «{path.name}».") from exc
+            raise UserError(f"Cannot read \"{path.name}\".") from exc
         if res.returncode != 0 or not wav.exists():
-            raise UserError(f"Non riesco a leggere «{path.name}»: il file è danneggiato o in un formato non supportato.")
+            raise UserError(f"Cannot read \"{path.name}\": the file is damaged or in an unsupported format.")
         data, sr = sf.read(str(wav), dtype="float32", always_2d=True)
     return data, sr
 
 
 def read_audio(path: Path, samplerate: int) -> np.ndarray:
-    """Legge un file audio e lo converte in stereo float32 a ``samplerate``."""
+    """Read an audio file and convert it to stereo float32 at ``samplerate``."""
     path = Path(path)
     if not path.is_file():
-        raise UserError(f"Il file «{path.name}» non esiste.")
+        raise UserError(f"The file \"{path.name}\" does not exist.")
     try:
         data, sr = sf.read(str(path), dtype="float32", always_2d=True)
-    except Exception:  # formato non gestito da libsndfile (es. m4a): provo con ffmpeg
+    except Exception:  # format not handled by libsndfile (e.g. m4a): try ffmpeg
         data, sr = _read_with_ffmpeg(path)
     if data.shape[0] == 0:
-        raise UserError(f"Il file «{path.name}» non contiene audio.")
+        raise UserError(f"The file \"{path.name}\" contains no audio.")
     if data.shape[1] == 1:
         data = np.repeat(data, 2, axis=1)
     data = data[:, :2]

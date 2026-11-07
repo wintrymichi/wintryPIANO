@@ -1,4 +1,4 @@
-"""Import di MIDI e audio, base nel mix e allineamento automatico."""
+"""MIDI and audio import, backing track in the mix and automatic alignment."""
 import mido
 import numpy as np
 import pytest
@@ -21,13 +21,13 @@ def _song(seed=3, bars=8, bpm=100):
     return demo_events(bpm=bpm, bars=bars, seed=seed)
 
 
-# ------------------------------------------------------------------ file audio
+# ----------------------------------------------------------------- audio files
 def test_read_wav_mono_resampled_to_stereo(tmp_path):
     t = np.arange(44100) / 44100
     sf.write(tmp_path / "a.wav", 0.5 * np.sin(2 * np.pi * 440 * t), 44100)
     audio = read_audio(tmp_path / "a.wav", SR)
     assert audio.shape == (SR, 2) and audio.dtype == np.float32
-    # la frequenza resta 440 Hz dopo il ricampionamento
+    # the frequency stays 440 Hz after resampling
     spec = np.abs(np.fft.rfft(audio[:, 0]))
     assert abs(np.argmax(spec) * SR / audio.shape[0] - 440) < 2
 
@@ -37,20 +37,20 @@ def test_read_mp3(tmp_path):
     data = 0.4 * np.sin(2 * np.pi * 330 * t)
     try:
         sf.write(tmp_path / "a.mp3", np.stack([data, data], 1), SR, format="MP3")
-    except Exception:  # libsndfile senza encoder MP3
-        pytest.skip("libsndfile senza supporto MP3")
+    except Exception:  # libsndfile without an MP3 encoder
+        pytest.skip("libsndfile without MP3 support")
     audio = read_audio(tmp_path / "a.mp3", SR)
     assert audio.shape[1] == 2 and abs(audio.shape[0] - SR * 2) < SR * 0.1
     assert 0.3 < np.max(np.abs(audio)) < 0.5
 
 
 def test_read_bad_file_is_friendly(tmp_path):
-    p = tmp_path / "rotto.mp3"
-    p.write_bytes(b"non sono un mp3")
+    p = tmp_path / "broken.mp3"
+    p.write_bytes(b"i am not an mp3")
     with pytest.raises(UserError):
         read_audio(p, SR)
     with pytest.raises(UserError):
-        read_audio(tmp_path / "manca.wav", SR)
+        read_audio(tmp_path / "missing.wav", SR)
 
 
 def test_resample_length():
@@ -92,10 +92,10 @@ def test_import_midi_skips_drums_and_takes_bpm(tmp_path):
 def test_import_midi_without_notes(tmp_path):
     mid = mido.MidiFile()
     mid.tracks.append(mido.MidiTrack([mido.Message("note_on", note=36, velocity=100, channel=9)]))
-    mid.save(tmp_path / "batteria.mid")
+    mid.save(tmp_path / "drums.mid")
     proj = Project.create(tmp_path / "p", "p")
     with pytest.raises(UserError):
-        proj.import_midi(tmp_path / "batteria.mid")
+        proj.import_midi(tmp_path / "drums.mid")
     assert not proj.has_piano()
 
 
@@ -107,14 +107,14 @@ def test_import_events_keeps_leading_silence_option(tmp_path):
     assert min(e[0] for e in events if e[1] == NOTE_ON) == pytest.approx(0.0, abs=0.001)
 
 
-# ------------------------------------------------------------------ base nel progetto
+# ------------------------------------------------------- backing in the project
 def test_base_saved_and_reloaded(tmp_path):
     proj = Project.create(tmp_path / "p", "p")
     audio = (np.random.default_rng(1).standard_normal((SR, 2)) * 0.1).astype(np.float32)
     proj.save_base(audio, SR, "canzone.mp3")
     assert proj.has_base() and proj.settings.base_name == "canzone.mp3"
     with pytest.raises(TakeExistsError):
-        proj.save_base(audio, SR, "altra.mp3")
+        proj.save_base(audio, SR, "other.mp3")
     proj.settings.base_offset_ms = 123.0
     proj.save()
     again = Project.open(proj.folder)
@@ -133,11 +133,11 @@ def test_mix_with_base_offsets():
     s = MixSettings(piano_volume=1, base_volume=1, base_offset_ms=100)
     out, lead = combine(piano, None, SR, s, base)
     assert lead == 0 and out[0, 0] == 0.5 and out[4800, 0] == 0.25
-    # base che parte prima del piano: niente viene tagliato, tutto slitta in avanti
+    # backing that starts before the piano: nothing is cut, everything shifts later
     s.base_offset_ms = -100
     out, lead = combine(piano, None, SR, s, base)
     assert lead == 4800 and out[0, 0] == 0.25 and out[4800, 0] == 0.5
-    # la voce resta agganciata al piano
+    # the voice stays locked to the piano
     voice = np.zeros(SR, np.float32)
     voice[0] = 0.125
     s.voice_offset_ms = 0
@@ -148,7 +148,7 @@ def test_mix_with_base_offsets():
     assert np.max(np.abs(mix)) <= 10 ** (-1 / 20) + 1e-6
 
 
-# ------------------------------------------------------------------ allineamento
+# ------------------------------------------------------------------ alignment
 def test_auto_align_finds_shift(synth):
     events = _song()
     piano = synth.render(events)
@@ -168,11 +168,11 @@ def test_auto_align_finds_shift(synth):
 
 def test_auto_align_finds_speed(synth):
     events = _song(bars=12)
-    # la base è la stessa musica suonata il 4% più lenta e con 1,5 s di introduzione
+    # the backing is the same music played 4% slower with a 1.5 s intro
     slow = align.stretch_events(events, 1 / 1.04)
     base = synth.render([(t + 1.5, k, a, b) for t, k, a, b in slow])
     off, speed, conf = align.align_base_to_midi(events, base, SR, find_speed=True)
-    # il MIDI va rallentato del 4% (velocità 0.96…) e la base anticipata di 1,5 s
+    # the MIDI must be slowed down by 4% (speed 0.96…) and the backing moved 1.5 s earlier
     assert speed == pytest.approx(1 / 1.04, abs=0.004)
     assert off == pytest.approx(-1500, abs=25)
 

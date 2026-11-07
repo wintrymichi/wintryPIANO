@@ -1,9 +1,10 @@
-"""Soundfont di pianoforte a coda gratuiti, con licenza verificata.
+"""Free grand piano soundfonts, with verified licenses.
 
-Entrambi sono pubblicati su freepats.zenvoid.org con licenza Creative Commons
-Attribution 3.0: si possono usare e ridistribuire (anche nel .exe) a patto di
-citare l'autore. Non sono nel repository Git perché superano i limiti di
-dimensione di GitHub; l'installer e il programma li scaricano in automatico.
+Both are published on freepats.zenvoid.org under the Creative Commons
+Attribution 3.0 license: they can be used and redistributed (including in the
+.exe) as long as the author is credited. They are not in the Git repository
+because they exceed GitHub's file size limits; the installer and the program
+download them automatically.
 """
 from __future__ import annotations
 
@@ -23,17 +24,17 @@ class SoundfontInfo:
     license: str
     author: str
     homepage: str
-    filename: str  # nome del file .sf2 salvato localmente
+    filename: str  # name of the .sf2 file saved locally
 
 
 SALAMANDER = SoundfontInfo(
     key="salamander",
     title="Salamander Grand Piano V3 (Yamaha C5)",
-    description="Pianoforte a coda campionato su 16 livelli di velocity. Il più realistico. Occupa 1,2 GB su disco e circa 2,5 GB di RAM.",
+    description="Grand piano sampled at 16 velocity layers. The most realistic. Takes 1.2 GB on disk and about 2.5 GB of RAM.",
     url="https://freepats.zenvoid.org/Piano/SalamanderGrandPiano/SalamanderGrandPiano-SF2-V3+20200602.tar.xz",
     archive_mb=296,
     license="Creative Commons Attribution 3.0 (CC BY 3.0)",
-    author="Alexander Holm (campioni), conversione SF2 di FreePats",
+    author="Alexander Holm (samples), SF2 conversion by FreePats",
     homepage="https://freepats.zenvoid.org/Piano/acoustic-grand-piano.html",
     filename="SalamanderGrandPiano.sf2",
 )
@@ -41,7 +42,7 @@ SALAMANDER = SoundfontInfo(
 YDP = SoundfontInfo(
     key="ydp",
     title="YDP Grand Piano (Yamaha Disklavier Pro)",
-    description="Pianoforte a coda più leggero, adatto a PC con poca memoria.",
+    description="A lighter grand piano, suited to PCs with little memory.",
     url="https://freepats.zenvoid.org/Piano/YDP-GrandPiano/YDP-GrandPiano-SF2-20160804.tar.bz2",
     archive_mb=36,
     license="Creative Commons Attribution 3.0 (CC BY 3.0)",
@@ -67,7 +68,7 @@ def installed_path(info: SoundfontInfo) -> Path | None:
 
 
 def find_default_soundfont(preferred: str = "") -> Path | None:
-    """Sceglie il soundfont da usare: quello salvato, poi Salamander, poi YDP, poi qualsiasi .sf2."""
+    """Choose the soundfont to use: the saved one, then Salamander, then YDP, then any .sf2."""
     if preferred and Path(preferred).is_file():
         return Path(preferred)
     for info in CATALOG:

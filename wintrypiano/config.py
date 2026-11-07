@@ -1,4 +1,4 @@
-"""Impostazioni persistenti dell'utente (ultime scelte, buffer, ecc.)."""
+"""Persistent user settings (last choices, buffer size, etc.)."""
 from __future__ import annotations
 
 import json
@@ -10,23 +10,23 @@ from wintrypiano.paths import app_data_dir
 
 log = logging.getLogger(__name__)
 
-EXPERIMENTAL_BUFFERS = (16, 32, 48)   # latenza minima: solo con driver e PC che li reggono
+EXPERIMENTAL_BUFFERS = (16, 32, 48)   # lowest latency: only with drivers and PCs that can handle them
 BUFFER_SIZES = EXPERIMENTAL_BUFFERS + (64, 96, 128, 192, 256, 512, 1024, 2048)
 
 
 @dataclass
 class Config:
-    midi_input: str = "*"          # "*" = tutti gli ingressi, "-" = nessuno
+    midi_input: str = "*"          # "*" = all inputs, "-" = none
     audio_input: str = ""
     audio_output: str = ""
-    host_api: str = "auto"          # "auto" oppure il nome esatto (es. "ASIO")
+    host_api: str = "auto"          # "auto" or the exact name (e.g. "ASIO")
     wasapi_exclusive: bool = False
     block_size: int = 256
     soundfont_path: str = ""
     last_project: str = ""
     voice_manual_offset_ms: float = 0.0
     metronome_volume: float = 0.6
-    monitor: bool = False          # ascolto del microfono in cuffia
+    monitor: bool = False          # hear the microphone in the headphones
     recent_projects: list = field(default_factory=list)
     version: int = 2
 
@@ -44,14 +44,14 @@ class Config:
         except FileNotFoundError:
             return cfg
         except (OSError, ValueError):
-            log.warning("Impostazioni illeggibili, uso i valori predefiniti")
+            log.warning("Unreadable settings, using defaults")
             return cfg
         known = {f.name for f in fields(cls)}
         for key, value in data.items():
             if key in known:
                 setattr(cfg, key, value)
         if int(data.get("version", 1)) < 2:
-            # La versione 1 salvava da sola la prima porta MIDI trovata: passo a "tutti gli ingressi".
+            # Version 1 saved the first MIDI port it found: switch to "all inputs".
             cfg.midi_input = "*"
             cfg.version = 2
         if cfg.block_size not in BUFFER_SIZES:

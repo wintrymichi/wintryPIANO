@@ -1,4 +1,4 @@
-"""Percorsi dell'applicazione (dati utente, risorse incluse, documenti)."""
+"""Application paths (user data, bundled resources, documents)."""
 from __future__ import annotations
 
 import os
@@ -21,7 +21,7 @@ def app_data_dir() -> Path:
 
 
 def resource_dir() -> Path:
-    """Cartella delle risorse incluse (funziona anche dentro l'exe PyInstaller)."""
+    """Folder of bundled resources (also works inside the PyInstaller exe)."""
     if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
         return Path(sys._MEIPASS)  # type: ignore[attr-defined]
     return Path(__file__).resolve().parent.parent

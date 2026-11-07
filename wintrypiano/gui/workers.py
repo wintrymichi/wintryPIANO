@@ -1,4 +1,4 @@
-"""Esecuzione di lavori lunghi fuori dal thread della GUI."""
+"""Runs long jobs outside the GUI thread."""
 from __future__ import annotations
 
 import logging
@@ -31,17 +31,24 @@ class Task(QRunnable):
     def report(self, frac: float, msg: str = "") -> None:
         self.signals.progress.emit(float(frac), msg)
 
+    @staticmethod
+    def _emit(signal, value) -> None:
+        try:
+            signal.emit(value)
+        except RuntimeError:  # the receiver was closed while the job was running
+            pass
+
     def run(self) -> None:
         try:
             if self.with_progress:
                 result = self.fn(*self.args, progress=self.report, **self.kwargs)
             else:
                 result = self.fn(*self.args, **self.kwargs)
-        except BaseException as exc:  # noqa: BLE001 - riportato alla GUI
-            log.error("errore in un lavoro in background:\n%s", traceback.format_exc())
-            self.signals.failed.emit(exc)
+        except BaseException as exc:  # noqa: BLE001 - reported to the GUI
+            log.error("error in a background job:\n%s", traceback.format_exc())
+            self._emit(self.signals.failed, exc)
         else:
-            self.signals.done.emit(result)
+            self._emit(self.signals.done, result)
         finally:
             _alive.discard(self)
 

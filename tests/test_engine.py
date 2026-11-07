@@ -1,4 +1,4 @@
-"""Test del motore audio senza hardware: si chiamano direttamente le callback."""
+"""Audio engine tests without hardware: the callbacks are called directly."""
 from types import SimpleNamespace
 
 import numpy as np
@@ -27,15 +27,15 @@ def test_live_note_sounds_immediately(synth):
     e = AudioEngine(synth, SR)
     e.note_event(NOTE_ON, 69, 110)
     audio = run_out(e, 4)
-    assert np.abs(audio[:B]).max() > 0.01  # già nel primo blocco dopo il tasto
+    assert np.abs(audio[:B]).max() > 0.01  # already in the first block after the key
 
 
 def test_count_in_then_recording_timestamps(synth):
     e = AudioEngine(synth, SR)
-    e.start_piano_recording(bpm=120, count_in_beats=4)  # 2 s di conto alla rovescia
+    e.start_piano_recording(bpm=120, count_in_beats=4)  # 2 s of count-in
     assert e.mode == COUNT_IN
     clicks = run_out(e, 10)
-    assert np.abs(clicks).max() > 0.1  # il click del conto si sente
+    assert np.abs(clicks).max() > 0.1  # the count-in click is audible
     assert e.count_in_remaining() == 4
     blocks_to_rec = int(np.ceil(2 * SR / B)) - 10
     run_out(e, blocks_to_rec + 1)
@@ -53,12 +53,12 @@ def test_count_in_then_recording_timestamps(synth):
 
 def test_note_played_just_before_downbeat_is_kept(synth):
     e = AudioEngine(synth, SR)
-    e.start_piano_recording(bpm=120, count_in_beats=4)  # 96000 frame di conto
-    run_out(e, 96000 // B - 20)  # ~100 ms prima dell'inizio
+    e.start_piano_recording(bpm=120, count_in_beats=4)  # 96000 frames of count-in
+    run_out(e, 96000 // B - 20)  # ~100 ms before the start
     e.note_event(NOTE_ON, 60, 100)
     run_out(e, 1)
     assert list(e.rec_queue) == [(0.0, NOTE_ON, 60, 100)]
-    # una nota suonata a metà conto non viene registrata
+    # a note played halfway through the count-in is not recorded
     e2 = AudioEngine(synth, SR)
     e2.start_piano_recording(bpm=120, count_in_beats=4)
     run_out(e2, 100)
@@ -72,7 +72,7 @@ def test_metronome_is_not_recorded(synth):
     e.metronome_enabled = True
     e.start_piano_recording(bpm=100, count_in_beats=0)
     run_out(e, 400)
-    assert len(e.rec_queue) == 0  # solo i tasti finiscono nella take
+    assert len(e.rec_queue) == 0  # only the keys end up in the take
 
 
 def test_sustain_held_at_start_is_recorded(synth):
@@ -96,8 +96,8 @@ def test_voice_recording_latency_compensation(synth):
     e.start_voice_recording(np.zeros((SR, 2), np.float32), bpm=100)
     out = np.zeros((B, 2), np.float32)
     mic = np.full((B, 1), 0.1, np.float32)
-    e._process_output(out, B, 10.050)   # il piano arriva alle cuffie a 10.050 s
-    e._process_input(mic, B, 10.020)    # il primo campione della voce è stato catturato a 10.020 s
+    e._process_output(out, B, 10.050)   # the piano reaches the headphones at 10.050 s
+    e._process_input(mic, B, 10.020)    # the first voice sample was captured at 10.020 s
     assert e.mode == REC_VOICE
     assert abs(e.voice_offset_ms() - (-30.0)) < 1e-6
     assert e.voice_ring.available() == B
@@ -139,14 +139,14 @@ def test_writer_journals_and_collects(tmp_path, synth):
     w.finish()
     assert w.events == [(0.0, NOTE_ON, 60, 100)]
     assert w.voice_audio().size == 1000
-    rec = find_recovery(tmp_path / "r")  # ciò che è finito su disco
+    rec = find_recovery(tmp_path / "r")  # what made it to disk
     assert rec.piano_events and rec.voice.size == 1000
     pj.close()
     vj.close()
 
 
 def test_demo_mode_full_take(synth):
-    """Il flusso completo con le note simulate: registrazione, take, render."""
+    """The full flow with simulated notes: recording, take, render."""
     e = AudioEngine(synth, SR)
     e.start_piano_recording(bpm=120, count_in_beats=0)
     evs = demo_events(bpm=120, bars=2)
@@ -176,7 +176,7 @@ def test_ringbuffer_wraps():
 
 
 def test_metronome_click_positions():
-    m = Metronome(SR, bpm=120)  # un battito ogni 24000 campioni
+    m = Metronome(SR, bpm=120)  # one beat every 24000 samples
     out = np.zeros((SR * 2, 2), np.float32)
     for i in range(0, SR * 2, B):
         n = min(B, SR * 2 - i)
@@ -186,18 +186,18 @@ def test_metronome_click_positions():
         assert np.abs(out[start + 1:start + 200, 0]).max() > 0.1
         if k:
             assert not out[start - 2000:start, 0].any()
-    # accento sul primo battito della battuta
+    # accent on the first beat of the bar
     assert out[1:200, 0].max() != out[24001:24200, 0].max()
 
 
 def test_play_and_sing_in_one_take(synth):
-    """Suona e canta: la voce parte con la take del piano ed è allineata a essa."""
+    """Play and sing: the voice starts with the piano take and is aligned to it."""
     e = AudioEngine(synth, SR)
-    e.start_piano_recording(bpm=120, count_in_beats=1, with_voice=True)  # 24000 frame di conto
+    e.start_piano_recording(bpm=120, count_in_beats=1, with_voice=True)  # 24000 frames of count-in
     out = np.zeros((B, 2), np.float32)
     mic = np.full((B, 1), 0.2, np.float32)
     t = 5.0
-    # durante il conto alla rovescia il microfono non viene registrato
+    # the microphone is not recorded during the count-in
     while e.mode == COUNT_IN or (e.mode == REC_PIANO and not e._capture):
         e._process_input(mic, B, t - 0.010)
         e._process_output(out, B, t + 0.020)
@@ -212,7 +212,7 @@ def test_play_and_sing_in_one_take(synth):
         t += B / SR
     assert e.voice_ring.available() == 10 * B
     assert e.rec_queue[0][1:] == (NOTE_ON, 64, 100)
-    # primo campione della voce catturato 30 ms prima che il primo blocco della take arrivi alle cuffie
+    # first voice sample captured 30 ms before the first block of the take reaches the headphones
     assert abs(e.voice_offset_ms() - ((e._adc_time - dac) * 1000)) < 1e-9
     assert -31 < e.voice_offset_ms() < -29 + 1000 * B / SR
     e.stop()
@@ -230,24 +230,24 @@ def test_piano_only_recording_does_not_capture_voice(synth):
 
 
 def test_notes_recorded_when_played_not_when_read(synth):
-    """La nota va registrata nell'istante in cui è stata suonata, sulla linea del tempo
-    delle cuffie: la latenza dell'uscita e l'attesa della callback vengono tolte."""
+    """A note is recorded at the moment it was played, on the headphone timeline:
+    the output latency and the wait for the callback are removed."""
     e = AudioEngine(synth, SR)
     clock = {"t": 100.0}
     e.clock = lambda: clock["t"]
     e.start_piano_recording(bpm=120, count_in_beats=0)
     out = np.zeros((B, 2), np.float32)
     out_latency = 0.025
-    # 10 blocchi: ogni blocco viene calcolato B campioni prima e suona dopo out_latency
+    # 10 blocks: each block is computed B samples ahead and sounds after out_latency
     for i in range(10):
         block_time = 100.0 + i * B / SR
         if i == 6:
-            clock["t"] = block_time - 0.003          # tasto premuto 3 ms prima della callback
+            clock["t"] = block_time - 0.003          # key pressed 3 ms before the callback
             e.note_event(NOTE_ON, 60, 100)
         e._process_output(out, B, block_time + out_latency)
     t = e.rec_queue[0][0]
     played = 100.0 + 6 * B / SR - 0.003
-    # la linea del tempo parte dal primo blocco, che è uscito a 100.0 + out_latency
+    # the timeline starts at the first block, which came out at 100.0 + out_latency
     assert abs(t - (played - (100.0 + out_latency))) < 1e-6
 
 
@@ -256,7 +256,7 @@ def test_monitor_latency_stays_low(synth):
     e.monitor_enabled = True
     out = np.zeros((B, 2), np.float32)
     mic = np.full((B, 1), 0.1, np.float32)
-    for _ in range(20):          # l'ingresso arriva a raffiche: 3 blocchi per volta
+    for _ in range(20):          # the input arrives in bursts: 3 blocks at a time
         for _ in range(3):
             e._process_input(mic, B, 0)
         for _ in range(3):

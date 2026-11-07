@@ -1,7 +1,7 @@
-"""Finestra «Sincronizza tracce»: sposta voce e audio importato rispetto al piano.
+"""The "Sync tracks" dialog: moves the voice and the imported audio relative to the piano.
 
-Il piano è il riferimento (tempo 0 = inizio della take). Le altre tracce si spostano
-trascinandole, con i campi in millisecondi oppure con l'allineamento automatico.
+The piano is the reference (time 0 = start of the take). The other tracks are moved
+by dragging them, with the millisecond fields, or with automatic alignment.
 """
 from __future__ import annotations
 
@@ -20,11 +20,11 @@ from wintrypiano.core.mixer import MixSettings, combine, prevent_clipping
 from wintrypiano.gui import theme
 from wintrypiano.gui.workers import run_task
 
-PEAK_RATE = 400          # valori della forma d'onda al secondo
-HEADER_W = 92            # colonna dei nomi
+PEAK_RATE = 400          # waveform values per second
+HEADER_W = 92            # track name column
 RULER_H = 26
 LANE_H = 78
-MAX_OFFSET_MS = 600_000  # ±10 minuti
+MAX_OFFSET_MS = 600_000  # ±10 minutes
 
 
 @dataclass
@@ -33,9 +33,9 @@ class Lane:
     title: str
     color: str
     peaks: np.ndarray | None = None
-    offset_ms: float = 0.0       # dove parte la traccia rispetto al piano
+    offset_ms: float = 0.0       # where the track starts relative to the piano
     draggable: bool = True
-    stretch: float = 1.0         # solo piano: durata visualizzata = durata / stretch
+    stretch: float = 1.0         # piano only: displayed duration = duration / stretch
 
     def start_s(self) -> float:
         return self.offset_ms / 1000.0
@@ -47,10 +47,10 @@ class Lane:
 
 
 class TrackView(QWidget):
-    """Linea del tempo con le forme d'onda; le tracce si trascinano col mouse."""
+    """Timeline with the waveforms; tracks are dragged with the mouse."""
 
-    offsetChanged = Signal(str, float)   # chiave traccia, nuovo offset in ms
-    cursorChanged = Signal(float)        # secondi
+    offsetChanged = Signal(str, float)   # track key, new offset in ms
+    cursorChanged = Signal(float)        # seconds
 
     def __init__(self, lanes: list[Lane], parent=None):
         super().__init__(parent)
@@ -59,7 +59,7 @@ class TrackView(QWidget):
         self.view_start = -1.0
         self.cursor_s = 0.0
         self.playhead_s: float | None = None
-        self._drag: tuple[Lane, float, float] | None = None   # traccia, x iniziale, offset iniziale
+        self._drag: tuple[Lane, float, float] | None = None   # track, start x, start offset
         self._fit_pending = True
         self.setFixedHeight(RULER_H + LANE_H * len(lanes) + 2)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -67,7 +67,7 @@ class TrackView(QWidget):
         self.setFocusPolicy(Qt.StrongFocus)
         self.scrollbar: QScrollBar | None = None
 
-    # -------------------------------------------------------- geometria
+    # -------------------------------------------------------- geometry
     def bounds(self) -> tuple[float, float]:
         starts = [min(0.0, l.start_s()) for l in self.lanes]
         ends = [l.start_s() + l.duration_s() for l in self.lanes]
@@ -141,7 +141,7 @@ class TrackView(QWidget):
         self._sync_scrollbar()
         self.update()
 
-    # -------------------------------------------------------- disegno
+    # -------------------------------------------------------- painting
     def resizeEvent(self, _event) -> None:  # noqa: N802
         if self._fit_pending and self.width() > HEADER_W + 100:
             self._fit_pending = False
@@ -150,7 +150,7 @@ class TrackView(QWidget):
             self.refresh()
 
     def _tick_step(self) -> float:
-        target = 90.0 / self.px_per_s   # circa una tacca ogni 90 px
+        target = 90.0 / self.px_per_s   # about one tick every 90 px
         for step in (0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300):
             if step >= target:
                 return step
@@ -175,7 +175,7 @@ class TrackView(QWidget):
         small.setPointSizeF(max(7.5, small.pointSizeF() * 0.8))
         p.setFont(small)
 
-        # righello
+        # ruler
         p.fillRect(0, 0, w, RULER_H, QColor(theme.PANEL_2))
         step = self._tick_step()
         t = math.floor(self.view_start / step) * step
@@ -188,12 +188,12 @@ class TrackView(QWidget):
                 p.drawText(QPointF(x + 3, RULER_H - 9), self._fmt(t, step))
             t += step
 
-        # tracce
+        # tracks
         for i, lane in enumerate(self.lanes):
             top = RULER_H + i * LANE_H
             p.fillRect(0, top, w, LANE_H - 2, QColor(theme.PANEL))
             self._draw_wave(p, lane, top + 4, LANE_H - 10)
-            # colonna con il nome
+            # name column
             p.fillRect(0, top, HEADER_W, LANE_H - 2, QColor(theme.PANEL_2))
             p.setPen(QColor(lane.color))
             title_font = QFont(self.font())
@@ -202,10 +202,10 @@ class TrackView(QWidget):
             p.drawText(QRectF(10, top + 6, HEADER_W - 14, 22), Qt.AlignLeft | Qt.AlignVCenter, lane.title)
             p.setFont(small)
             p.setPen(QColor(theme.MUTED))
-            sub = "riferimento" if not lane.draggable else f"{lane.offset_ms:+.0f} ms"
+            sub = "reference" if not lane.draggable else f"{lane.offset_ms:+.0f} ms"
             p.drawText(QRectF(10, top + 30, HEADER_W - 14, 20), Qt.AlignLeft | Qt.AlignVCenter, sub)
 
-        # zero del piano, cursore e testina
+        # piano zero, cursor and playhead
         x0 = self.t_to_x(0.0)
         if x0 >= HEADER_W:
             p.setPen(QPen(QColor(theme.BORDER), 1, Qt.DashLine))
@@ -224,7 +224,7 @@ class TrackView(QWidget):
     def _draw_wave(self, p: QPainter, lane: Lane, top: float, height: float) -> None:
         if lane.peaks is None:
             p.setPen(QColor(theme.MUTED))
-            p.drawText(QRectF(HEADER_W + 10, top, 300, height), Qt.AlignVCenter, "Preparo la forma d'onda…")
+            p.drawText(QRectF(HEADER_W + 10, top, 300, height), Qt.AlignVCenter, "Preparing the waveform...")
             return
         peaks = lane.peaks
         if peaks.size == 0:
@@ -234,15 +234,15 @@ class TrackView(QWidget):
         if x_end <= x_start:
             return
         xs = np.arange(x_start, x_end + 1)
-        # tempo (dentro la traccia, in secondi del file) di ogni bordo di colonna
+        # time (inside the track, in file seconds) of each column edge
         local = (self.view_start + (xs - HEADER_W) / self.px_per_s - lane.start_s()) * lane.stretch
         idx = np.clip((local * PEAK_RATE).astype(np.int64), 0, peaks.size - 1)
-        # un valore per colonna: il massimo dei picchi che cadono nella colonna
+        # one value per column: the maximum of the peaks falling in it
         vals = np.maximum.reduceat(peaks, idx[:-1]).astype(np.float64)
         vals[-1] = peaks[idx[-2]:idx[-1] + 1].max()
         dup = np.nonzero(np.diff(idx[:-1]) <= 0)[0]
-        vals[dup] = peaks[idx[dup]]   # colonne più strette di un picco (zoom molto alto)
-        vals = np.sqrt(np.clip(vals, 0.0, 1.0))   # scala più leggibile per i suoni piani
+        vals[dup] = peaks[idx[dup]]   # columns narrower than one peak (very high zoom)
+        vals = np.sqrt(np.clip(vals, 0.0, 1.0))   # a more readable scale for quiet sounds
         mid = top + height / 2
         amp = vals * (height / 2 - 1)
         color = QColor(lane.color)
@@ -251,13 +251,13 @@ class TrackView(QWidget):
         lines = [QLineF(float(x) + 0.5, mid - a, float(x) + 0.5, mid + a)
                  for x, a in zip(xs[:-1], amp)]
         p.drawLines(lines)
-        # bordo della traccia
+        # track border
         border = QColor(lane.color)
         border.setAlpha(90)
         p.setPen(QPen(border, 1))
         p.drawRect(QRectF(x_start, top, x_end - x_start - 1, height))
 
-    # -------------------------------------------------------- mouse e tastiera
+    # -------------------------------------------------------- mouse and keyboard
     def mousePressEvent(self, ev) -> None:  # noqa: N802
         pos = ev.position()
         lane = self.lane_at(pos.y())
@@ -279,7 +279,7 @@ class TrackView(QWidget):
             lane, x0, off0 = self._drag
             dx = pos.x() - x0
             if ev.modifiers() & Qt.ShiftModifier:
-                dx *= 0.1   # spostamento fine
+                dx *= 0.1   # fine movement
             new = max(-MAX_OFFSET_MS, min(MAX_OFFSET_MS, off0 + dx / self.px_per_s * 1000.0))
             self.offsetChanged.emit(lane.key, round(new))
             return
@@ -309,17 +309,17 @@ class TrackView(QWidget):
 
 
 class SyncDialog(QDialog):
-    """Dialogo modale. I dati arrivano già pronti; i calcoli lunghi girano in background.
+    """Modal dialog. The data arrives ready; long computations run in the background.
 
-    ``engine`` serve per l'ascolto, ``render_piano(speed)`` ritorna l'audio del piano
-    renderizzato alla velocità data (usato solo se la velocità cambia).
+    ``engine`` is used for listening; ``render_piano(speed)`` returns the piano audio
+    rendered at the given speed (used only when the speed changes).
     """
 
     def __init__(self, parent, *, samplerate: int, engine, piano_audio, piano_events, voice_audio,
                  base_audio, settings: MixSettings, voice_fixed_ms: float, voice_user_ms: float,
                  render_piano, base_name: str = ""):
         super().__init__(parent)
-        self.setWindowTitle("Sincronizza tracce")
+        self.setWindowTitle("Sync tracks")
         self.setMinimumSize(900, 600)
         self.resize(1150, 720)
         self.sr = samplerate
@@ -329,7 +329,7 @@ class SyncDialog(QDialog):
         self.voice_audio = voice_audio
         self.base_audio = base_audio
         self.mix = settings
-        self.voice_fixed_ms = voice_fixed_ms   # compensazione automatica della latenza (+ correzione globale)
+        self.voice_fixed_ms = voice_fixed_ms   # automatic latency compensation (+ global correction)
         self.render_piano = render_piano
         self._rendered_speed = 1.0
         self._preview_start = 0.0
@@ -341,16 +341,16 @@ class SyncDialog(QDialog):
         if piano_audio is not None:
             order.append(Lane("piano", "Piano", theme.ICE, draggable=False))
         if voice_audio is not None:
-            order.append(Lane("voice", "Voce", theme.GREEN, offset_ms=voice_fixed_ms + voice_user_ms))
+            order.append(Lane("voice", "Voice", theme.GREEN, offset_ms=voice_fixed_ms + voice_user_ms))
         if base_audio is not None:
-            order.append(Lane("base", "Importato", theme.AMBER, offset_ms=settings.base_offset_ms))
+            order.append(Lane("base", "Imported", theme.AMBER, offset_ms=settings.base_offset_ms))
         for lane in order:
             self.lanes[lane.key] = lane
 
         lay = QVBoxLayout(self)
-        hint = QLabel("Il piano è il riferimento. Trascina le altre tracce con il mouse "
-                      "(tieni premuto Maiusc per uno spostamento fine), oppure scrivi lo spostamento in ms. "
-                      "Clic su un punto vuoto per scegliere da dove ascoltare. Ctrl + rotella per lo zoom.")
+        hint = QLabel("The piano is the reference. Drag the other tracks with the mouse "
+                      "(hold Shift for fine movement), or type the offset in ms. "
+                      "Click an empty spot to choose where to listen from. Ctrl + wheel to zoom.")
         hint.setWordWrap(True)
         hint.setObjectName("hint")
         lay.addWidget(hint)
@@ -366,7 +366,7 @@ class SyncDialog(QDialog):
 
         zoom_row = QHBoxLayout()
         for text, fn in (("−", lambda: self.view.zoom(0.66)), ("+", lambda: self.view.zoom(1.5)),
-                         ("Adatta", self.view.fit)):
+                         ("Fit", self.view.fit)):
             b = QPushButton(text)
             b.setObjectName("nudge")
             b.clicked.connect(fn)
@@ -382,7 +382,7 @@ class SyncDialog(QDialog):
         grid.setHorizontalSpacing(8)
         self.spins: dict[str, QDoubleSpinBox] = {}
         row = 0
-        for key, label in (("voice", "Spostamento voce"), ("base", "Spostamento audio importato")):
+        for key, label in (("voice", "Voice offset"), ("base", "Imported audio offset")):
             if key not in self.lanes:
                 continue
             grid.addWidget(QLabel(label), row, 0)
@@ -401,20 +401,20 @@ class SyncDialog(QDialog):
             for step in (-100, -10, -1, 1, 10, 100):
                 b = QPushButton(f"{step:+d}")
                 b.setObjectName("nudge")
-                b.setToolTip(f"Sposta di {step:+d} ms ({'prima' if step < 0 else 'dopo'})")
+                b.setToolTip(f"Move by {step:+d} ms ({'earlier' if step < 0 else 'later'})")
                 b.clicked.connect(lambda _c=False, k=key, s=step: self.spins[k].setValue(self.spins[k].value() + s))
                 grid.addWidget(b, row, col)
                 col += 1
-            z = QPushButton("Azzera")
+            z = QPushButton("Reset")
             z.setObjectName("nudge")
             z.clicked.connect(lambda _c=False, k=key: self.spins[k].setValue(0))
             grid.addWidget(z, row, col)
             if key == "voice":
-                spin.setToolTip(f"Correzione a mano. Si aggiunge alla compensazione automatica "
-                                f"della latenza ({voice_fixed_ms:+.0f} ms).")
+                spin.setToolTip(f"Manual correction. It is added to the automatic latency "
+                                f"compensation ({voice_fixed_ms:+.0f} ms).")
             row += 1
         if "piano" in self.lanes and piano_events:
-            grid.addWidget(QLabel("Velocità del piano (MIDI)"), row, 0)
+            grid.addWidget(QLabel("Piano speed (MIDI)"), row, 0)
             self.speed = QDoubleSpinBox()
             self.speed.setRange(50.0, 200.0)
             self.speed.setDecimals(1)
@@ -422,8 +422,8 @@ class SyncDialog(QDialog):
             self.speed.setSuffix(" %")
             self.speed.setValue(100.0)
             self.speed.setKeyboardTracking(False)
-            self.speed.setToolTip("Utile se il MIDI ha un tempo un po' diverso dall'audio importato: "
-                                  "sopra 100% il piano va più veloce.")
+            self.speed.setToolTip("Useful when the MIDI tempo differs slightly from the imported audio: "
+                                  "above 100% the piano plays faster.")
             self.speed.valueChanged.connect(self._speed_changed)
             grid.addWidget(self.speed, row, 1)
             col = 2
@@ -444,10 +444,10 @@ class SyncDialog(QDialog):
         lay.addLayout(grid)
 
         auto = QHBoxLayout()
-        self.btn_auto = QPushButton("✦  Allinea automaticamente l'audio importato al piano")
+        self.btn_auto = QPushButton("✦  Auto-align the imported audio to the piano")
         self.btn_auto.clicked.connect(self.auto_align)
-        self.cb_speed = QCheckBox("Correggi anche la velocità del MIDI")
-        self.cb_speed.setToolTip("Più lento: prova velocità dall'80% al 125% per trovare quella che combacia meglio.")
+        self.cb_speed = QCheckBox("Also fix the MIDI speed")
+        self.cb_speed.setToolTip("Slower: tries speeds from 80% to 125% to find the best match.")
         can_auto = "base" in self.lanes and "piano" in self.lanes and bool(piano_events)
         self.btn_auto.setEnabled(can_auto)
         self.cb_speed.setEnabled(can_auto)
@@ -456,13 +456,13 @@ class SyncDialog(QDialog):
         auto.addStretch(1)
         lay.addLayout(auto)
         self.auto_label = QLabel("" if can_auto else
-                                 "L'allineamento automatico serve quando ci sono sia il piano sia un audio importato.")
+                                 "Automatic alignment needs both a piano track and imported audio.")
         self.auto_label.setObjectName("hint")
         self.auto_label.setWordWrap(True)
         lay.addWidget(self.auto_label)
 
         bottom = QHBoxLayout()
-        self.btn_play = QPushButton("▶  Ascolta dal cursore")
+        self.btn_play = QPushButton("▶  Play from cursor")
         self.btn_play.setObjectName("big")
         self.btn_play.clicked.connect(self.preview)
         self.btn_stop = QPushButton("■  Stop")
@@ -471,10 +471,10 @@ class SyncDialog(QDialog):
         bottom.addWidget(self.btn_play)
         bottom.addWidget(self.btn_stop)
         bottom.addStretch(1)
-        cancel = QPushButton("Annulla")
+        cancel = QPushButton("Cancel")
         cancel.setObjectName("big")
         cancel.clicked.connect(self.reject)
-        ok = QPushButton("Applica")
+        ok = QPushButton("Apply")
         ok.setObjectName("big")
         ok.setDefault(True)
         ok.clicked.connect(self.accept)
@@ -489,7 +489,7 @@ class SyncDialog(QDialog):
         self._update_pos_label()
         self._compute_peaks()
 
-    # -------------------------------------------------------- risultati
+    # -------------------------------------------------------- results
     @property
     def base_offset_ms(self) -> float:
         return self.lanes["base"].offset_ms if "base" in self.lanes else self.mix.base_offset_ms
@@ -502,7 +502,7 @@ class SyncDialog(QDialog):
     def piano_speed(self) -> float:
         return self.speed.value() / 100.0 if self.speed is not None else 1.0
 
-    # -------------------------------------------------------- forme d'onda
+    # -------------------------------------------------------- waveforms
     def _compute_peaks(self) -> None:
         sources = {"piano": self.piano_audio, "voice": self.voice_audio, "base": self.base_audio}
 
@@ -519,7 +519,7 @@ class SyncDialog(QDialog):
 
         run_task(work, on_done=done, on_error=lambda exc: None)
 
-    # -------------------------------------------------------- spostamenti
+    # -------------------------------------------------------- offsets
     def _lane_dragged(self, key: str, offset_ms: float) -> None:
         if key == "voice":
             self.spins["voice"].setValue(offset_ms - self.voice_fixed_ms)
@@ -538,7 +538,7 @@ class SyncDialog(QDialog):
         self._preview_dirty()
 
     def _preview_dirty(self) -> None:
-        # se sto ascoltando, riparto dal punto attuale con le nuove impostazioni
+        # while listening, restart from the current point with the new settings
         if self.view.playhead_s is not None:
             self._restart_timer = getattr(self, "_restart_timer", None)
             if self._restart_timer is None:
@@ -552,11 +552,11 @@ class SyncDialog(QDialog):
         if self.view.playhead_s is not None:
             self.preview(start=self.view.playhead_s)
 
-    # -------------------------------------------------------- allineamento automatico
+    # -------------------------------------------------------- automatic alignment
     def auto_align(self) -> None:
         find_speed = self.cb_speed.isChecked()
         self.btn_auto.setEnabled(False)
-        self.auto_label.setText("Analizzo le note del piano e l'audio importato…")
+        self.auto_label.setText("Analysing the piano notes and the imported audio...")
         events = self.piano_events
         base = self.base_audio
         sr = self.sr
@@ -567,7 +567,7 @@ class SyncDialog(QDialog):
 
         def prog(frac, _msg):
             if not self._closing:
-                self.auto_label.setText(f"Analizzo le note del piano e l'audio importato… {int(frac * 100)}%")
+                self.auto_label.setText(f"Analysing the piano notes and the imported audio... {int(frac * 100)}%")
 
         def done(res):
             if self._closing:
@@ -575,30 +575,30 @@ class SyncDialog(QDialog):
             offset, speed, conf = res
             self.btn_auto.setEnabled(True)
             if conf < 0.2:
-                self.auto_label.setText("Non ho trovato un punto in cui piano e audio combaciano con sicurezza: "
-                                        "forse non è lo stesso brano. Ho lasciato tutto com'era, sistemalo a mano.")
+                self.auto_label.setText("Could not find a point where the piano and the audio clearly match: "
+                                        "maybe it is not the same song. Nothing was changed; adjust it by hand.")
                 return
             if self.speed is not None and find_speed:
                 self.speed.setValue(round(speed * 1000) / 10.0)
             self.spins["base"].setValue(round(offset))
-            level = "alta" if conf > 0.5 else "media" if conf > 0.3 else "bassa: controlla ad orecchio"
-            extra = f", velocità del MIDI {speed * 100:.1f}%" if find_speed else ""
-            self.auto_label.setText(f"Fatto: audio importato spostato di {offset:+.0f} ms{extra}. "
-                                    f"Affidabilità {level}. Ascolta per controllare.")
+            level = "high" if conf > 0.5 else "medium" if conf > 0.3 else "low: check by ear"
+            extra = f", MIDI speed {speed * 100:.1f}%" if find_speed else ""
+            self.auto_label.setText(f"Done: imported audio moved by {offset:+.0f} ms{extra}. "
+                                    f"Confidence {level}. Listen to check.")
 
         def failed(exc):
             if not self._closing:
                 self.btn_auto.setEnabled(True)
-                self.auto_label.setText("L'allineamento automatico non è riuscito.")
+                self.auto_label.setText("Automatic alignment failed.")
 
         run_task(work, on_done=done, on_error=failed, on_progress=prog)
 
-    # -------------------------------------------------------- ascolto
+    # -------------------------------------------------------- listening
     def _update_pos_label(self) -> None:
         t = self.view.cursor_s
         sign = "-" if t < 0 else ""
         m, s = divmod(abs(t), 60)
-        self.pos_label.setText(f"Cursore: {sign}{int(m)}:{s:05.2f}")
+        self.pos_label.setText(f"Cursor: {sign}{int(m)}:{s:05.2f}")
 
     def preview(self, _checked=False, start: float | None = None) -> None:
         start_s = self.view.cursor_s if start is None else start
@@ -621,7 +621,7 @@ class SyncDialog(QDialog):
             piano, rendered, (audio, first_s) = res
             self.btn_play.setEnabled(True)
             if piano is not None:
-                # tengo il render nuovo: la forma d'onda ora è quella vera
+                # keep the new render: the waveform is now the real one
                 self.piano_audio, self._rendered_speed = piano, rendered
                 self.lanes["piano"].stretch = 1.0
                 self.lanes["piano"].peaks = align.peaks(piano, self.sr, PEAK_RATE)
@@ -635,12 +635,12 @@ class SyncDialog(QDialog):
         def failed(exc):
             if not self._closing:
                 self.btn_play.setEnabled(True)
-                QMessageBox.warning(self, "Ascolto", "Non riesco a preparare l'ascolto.")
+                QMessageBox.warning(self, "Playback", "Cannot prepare the playback.")
 
         run_task(work, on_done=done, on_error=failed)
 
     def _build(self, piano, settings: MixSettings, start_s: float):
-        """Mix senza effetti dal punto ``start_s`` (secondi sulla linea del tempo del piano)."""
+        """Mix without effects from ``start_s`` (seconds on the piano timeline)."""
         audio, lead = combine(piano, self.voice_audio, self.sr, settings, self.base_audio)
         first = max(0, int(round(start_s * self.sr)) + lead)
         audio = audio[first:]
@@ -665,7 +665,7 @@ class SyncDialog(QDialog):
         self.view.ensure_visible(self.view.playhead_s)
         self.view.update()
 
-    def done(self, result: int) -> None:  # noqa: D401 - chiusura del dialogo
+    def done(self, result: int) -> None:  # noqa: D401 - dialog closing
         self._closing = True
         self.timer.stop()
         self.engine.stop()

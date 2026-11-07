@@ -1,4 +1,4 @@
-"""Ingresso MIDI USB con mido + python-rtmidi, tollerante a collega/scollega."""
+"""USB MIDI input with mido + python-rtmidi, tolerant of plugging and unplugging."""
 from __future__ import annotations
 
 import logging
@@ -16,8 +16,8 @@ def _mido():
 
     try:
         mido.set_backend("mido.backends.rtmidi", load=True)
-    except Exception as exc:  # pragma: no cover - dipende dall'installazione
-        raise UserError("Manca il supporto MIDI (python-rtmidi). Esegui di nuovo l'installer.") from exc
+    except Exception as exc:  # pragma: no cover - depends on the installation
+        raise UserError("MIDI support (python-rtmidi) is missing. Run the installer again.") from exc
     return mido
 
 
@@ -29,15 +29,15 @@ def list_inputs() -> list[str]:
     except Exception:
         global _warned
         if not _warned:
-            log.exception("elenco porte MIDI fallito")
+            log.exception("listing MIDI ports failed")
             _warned = True
         return []
-    # Su Windows i nomi possono ripetersi: rimuovo i duplicati mantenendo l'ordine
+    # On Windows names can repeat: remove duplicates while keeping the order
     return list(dict.fromkeys(names))
 
 
 def _strip_index(name: str) -> str:
-    """Windows aggiunge un numero finale ("Piano 1") che cambia tra una sessione e l'altra."""
+    """Windows appends a number ("Piano 1") that can change between sessions."""
     parts = name.rsplit(" ", 1)
     if len(parts) == 2 and parts[1].isdigit():
         return parts[0]
@@ -56,23 +56,23 @@ def match_port(wanted: str, available: list[str]) -> str | None:
     return None
 
 
-ALL = "*"    # ascolta tutti gli ingressi MIDI (predefinito)
-NONE = "-"   # nessun ingresso
+ALL = "*"    # listen to all MIDI inputs (default)
+NONE = "-"   # no input
 
 
 class MidiInput:
-    """Apre uno o tutti gli ingressi MIDI e inoltra note/controlli a ``sink(tipo, a, b)``.
+    """Open one or all MIDI inputs and forward notes/controllers to ``sink(kind, a, b)``.
 
-    Con ``ALL`` ascolta tutte le porte insieme: utile con interfacce che hanno più
-    ingressi (es. "ESI MIDIMATE eX 0" e "MIDIIN2 (ESI MIDIMATE eX) 1"), dove non si
-    sa a quale è collegato il piano.
+    With ``ALL`` every port is listened to at once: useful with interfaces that have
+    several inputs (e.g. "ESI MIDIMATE eX 0" and "MIDIIN2 (ESI MIDIMATE eX) 1"), where
+    it is not known which one the piano is connected to.
     """
 
     def __init__(self, sink: Callable[[int, int, int], None]):
         self.sink = sink
         self.ports: dict = {}
-        self.wanted = ALL      # scelta dell'utente (anche se ora scollegata)
-        self.activity = 0      # messaggi ricevuti (per la spia nella GUI)
+        self.wanted = ALL      # the user's choice (even if currently unplugged)
+        self.activity = 0      # messages received (for the activity light in the GUI)
         self._seen: set = set()
 
     @property
@@ -88,7 +88,7 @@ class MidiInput:
             self.activity += 1
             if port_name not in self._seen:
                 self._seen.add(port_name)
-                log.info("primo messaggio MIDI da %r: %s", port_name, msg)
+                log.info("first MIDI message from %r: %s", port_name, msg)
             ev = from_mido(msg)
             if ev is not None:
                 self.sink(*ev)
@@ -97,13 +97,13 @@ class MidiInput:
     def _open_port(self, name: str) -> None:
         try:
             self.ports[name] = _mido().open_input(name, callback=self._make_callback(name))
-            log.info("ingresso MIDI aperto: %r", name)
+            log.info("MIDI input opened: %r", name)
         except UserError:
             raise
         except Exception as exc:
-            log.warning("apertura MIDI %r fallita: %s", name, exc)
-            raise UserError(f"Non riesco ad aprire il piano MIDI «{name}». "
-                            "Forse è usato da un altro programma: chiudilo e riprova.") from exc
+            log.warning("opening MIDI %r failed: %s", name, exc)
+            raise UserError(f"Cannot open the MIDI piano \"{name}\". "
+                            "It may be in use by another program: close it and try again.") from exc
 
     def open(self, name: str) -> None:
         self.close()
@@ -132,7 +132,7 @@ class MidiInput:
         self.ports = {}
 
     def poll(self) -> str | None:
-        """Controlla collegamenti/scollegamenti. Ritorna un messaggio di stato o None."""
+        """Check for plugged/unplugged devices. Return a status message or None."""
         if self.wanted == NONE:
             return None
         available = list_inputs()
@@ -142,13 +142,13 @@ class MidiInput:
                 self.ports.pop(n).close()
             except Exception:
                 pass
-            msg = f"Piano MIDI scollegato: {n}"
+            msg = f"MIDI piano disconnected: {n}"
         if self.wanted == ALL:
             for n in available:
                 if n not in self.ports:
                     try:
                         self._open_port(n)
-                        msg = f"Piano MIDI collegato: {n}"
+                        msg = f"MIDI piano connected: {n}"
                     except UserError:
                         pass
         elif not self.ports:
@@ -157,7 +157,7 @@ class MidiInput:
                 try:
                     self._open_port(found)
                     self.wanted = found
-                    msg = f"Piano MIDI collegato: {found}"
+                    msg = f"MIDI piano connected: {found}"
                 except UserError:
                     pass
         return msg

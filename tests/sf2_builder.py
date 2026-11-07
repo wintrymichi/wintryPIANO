@@ -1,4 +1,4 @@
-"""Costruisce un piccolo soundfont .sf2 sinusoidale per i test (niente download)."""
+"""Builds a tiny sine-wave .sf2 soundfont for the tests (no download)."""
 from __future__ import annotations
 
 import struct
@@ -21,11 +21,11 @@ def _name(s: str) -> bytes:
 
 
 def build_sine_sf2(path: Path, sample_rate: int = 44000) -> Path:
-    period = 100  # 440 Hz a 44 kHz -> nota 69
+    period = 100  # 440 Hz at 44 kHz -> note 69
     n = period * 200
     t = np.arange(n)
     samples = (np.sin(2 * np.pi * t / period) * 20000).astype("<i2")
-    smpl = samples.tobytes() + b"\0" * 92  # 46 campioni di padding richiesti
+    smpl = samples.tobytes() + b"\0" * 92  # 46 padding samples required
 
     info = _list(b"INFO", _chunk(b"ifil", struct.pack("<HH", 2, 1)) +
                  _chunk(b"isng", b"EMU8000\0") + _chunk(b"INAM", b"Test Piano\0\0"))

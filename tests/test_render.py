@@ -22,7 +22,7 @@ def test_render_pitch_and_length(synth):
     s = seg(audio, 0.1, 0.3)[:, 0]
     crossings = int(((s[:-1] < 0) & (s[1:] >= 0)).sum())
     assert crossings / 0.2 == pytest.approx(440, abs=10)
-    assert audio.shape[0] < SR * 1.5  # coda tagliata dopo il rilascio
+    assert audio.shape[0] < SR * 1.5  # tail cut after the release
 
 
 def test_velocity_changes_loudness(synth):
@@ -38,15 +38,15 @@ def test_sustain_pedal_holds_notes(synth):
                           (1.5, CONTROL, CC_SUSTAIN, 0), (2.0, NOTE_ON, 30, 1), (2.01, NOTE_OFF, 30, 0)])
     assert rms(seg(no_pedal, 1.0, 1.4)) < 1e-3
     assert rms(seg(pedal, 1.0, 1.4)) > 0.05
-    assert rms(seg(pedal, 1.9, 1.99)) < 1e-3  # rilascio dopo il pedale
+    assert rms(seg(pedal, 1.9, 1.99)) < 1e-3  # release after the pedal
 
 
 def test_render_matches_live_rendering(synth):
-    """Il render offline usa lo stesso motore del suono dal vivo: stesso risultato."""
+    """The offline render uses the same engine as the live sound: same result."""
     events = [(0.0, NOTE_ON, 60, 90), (0.25, NOTE_ON, 67, 70), (0.5, NOTE_OFF, 60, 0), (0.75, NOTE_OFF, 67, 0)]
     offline = synth.render(events, tail_s=0.5)
-    # simulazione "live": eventi applicati a confini di blocco come fa la callback
-    block = 240  # 5 ms: i tempi degli eventi cadono su confini di blocco
+    # "live" simulation: events applied at block boundaries like the callback does
+    block = 240  # 5 ms: the event times fall on block boundaries
     live = np.zeros_like(offline)
     synth.all_off()
     with synth.lock:
@@ -57,8 +57,8 @@ def test_render_matches_live_rendering(synth):
                 i += 1
             n = min(block, offline.shape[0] - pos)
             live[pos:pos + n] = synth.generate(n)
-    # TinySoundFont aggiorna gli inviluppi a blocchi, quindi piccole differenze
-    # dipendono solo dalla dimensione del blocco, non dalla qualità del suono.
+    # TinySoundFont updates the envelopes per block, so small differences
+    # depend only on the block size, not on the sound quality.
     assert rms(live - offline) < 0.02 * rms(offline)
     assert np.corrcoef(live[:, 0], offline[:, 0])[0, 1] > 0.999
 

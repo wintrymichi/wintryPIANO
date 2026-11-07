@@ -1,8 +1,8 @@
-"""Sintetizzatore di pianoforte basato su TinySoundFont (.sf2 / .sf3).
+"""Piano synthesizer based on TinySoundFont (.sf2 / .sf3).
 
-Lo stesso oggetto serve sia per il suono dal vivo (nella callback audio)
-sia per il render offline del MIDI, così la qualità è identica.
-Il pedale del sustain (CC64) è gestito qui, perché TinySoundFont non lo fa.
+The same object is used for the live sound (in the audio callback) and for
+the offline render of the MIDI, so the quality is identical. The sustain
+pedal (CC64) is handled here, because TinySoundFont does not handle it.
 """
 from __future__ import annotations
 
@@ -23,30 +23,30 @@ MAX_VOICES = 256
 def _import_tsf():
     try:
         import tinysoundfont  # noqa: WPS433
-    except ImportError as exc:  # pragma: no cover - dipende dall'installazione
-        raise UserError("Manca la libreria tinysoundfont. Esegui di nuovo l'installer.") from exc
+    except ImportError as exc:  # pragma: no cover - depends on the installation
+        raise UserError("The tinysoundfont library is missing. Run the installer again.") from exc
     return tinysoundfont
 
 
 class LoadedFont:
-    """Un soundfont caricato con il preset di pianoforte selezionato."""
+    """A loaded soundfont with the selected piano preset."""
 
     def __init__(self, path: Path, samplerate: int):
         tsf = _import_tsf()
         path = Path(path)
         if not path.is_file():
-            raise UserError(f"Il soundfont «{path.name}» non esiste più.")
+            raise UserError(f"The soundfont \"{path.name}\" no longer exists.")
         self.path = path
         self.samplerate = samplerate
         self.synth = tsf.Synth(samplerate=samplerate)
         try:
             sfid = self.synth.sfload(str(path), max_voices=MAX_VOICES)
-        except Exception as exc:  # tinysoundfont solleva SoundFontException
-            raise UserError(f"Il file «{path.name}» non è un soundfont valido (.sf2 o .sf3).") from exc
+        except Exception as exc:  # tinysoundfont raises SoundFontException
+            raise UserError(f"The file \"{path.name}\" is not a valid soundfont (.sf2 or .sf3).") from exc
         self.preset_name = self._select_piano(sfid)
 
     def _select_piano(self, sfid: int) -> str:
-        # Preferisce bank 0 preset 0 (Acoustic Grand Piano), altrimenti il primo disponibile.
+        # Prefer bank 0 preset 0 (Acoustic Grand Piano), otherwise the first available one.
         candidates = [(0, 0), (0, 1), (0, 2)]
         candidates += [(b, p) for b in (0, 1, 8, 16, 128) for p in range(128)]
         for bank, preset in candidates:
@@ -54,11 +54,11 @@ class LoadedFont:
             if name is not None:
                 self.synth.program_select(0, sfid, bank, preset)
                 return name
-        raise UserError("Il soundfont non contiene strumenti utilizzabili.")
+        raise UserError("The soundfont contains no usable instruments.")
 
 
 class PianoSynth:
-    """Wrapper thread-safe: ``lock`` protegge lo stato del sintetizzatore."""
+    """Thread-safe wrapper: ``lock`` protects the synthesizer state."""
 
     def __init__(self, samplerate: int = 48000, max_block: int = 4096):
         self.samplerate = samplerate
@@ -70,11 +70,11 @@ class PianoSynth:
         self.max_block = max_block
         self._reset_state()
 
-    # ---------------------------------------------------------------- stato
+    # ---------------------------------------------------------------- state
     def _reset_state(self) -> None:
         self.sustain = False
-        self._held = [False] * 128       # tasti fisicamente premuti
-        self._sustained = [False] * 128  # note tenute dal pedale
+        self._held = [False] * 128       # keys physically held down
+        self._sustained = [False] * 128  # notes held by the pedal
 
     @property
     def loaded(self) -> bool:
@@ -85,14 +85,14 @@ class PianoSynth:
         return self.font.path if self.font else None
 
     def set_font(self, font: LoadedFont | None) -> None:
-        """Sostituisce il soundfont (caricato altrove, fuori dalla callback)."""
+        """Replace the soundfont (loaded elsewhere, outside the callback)."""
         with self.lock:
             self.font = font
             self._reset_state()
 
-    # --------------------------------------------------------------- eventi
+    # --------------------------------------------------------------- events
     def handle(self, kind: int, a: int, b: int) -> None:
-        """Applica un evento. Va chiamato tenendo ``lock``."""
+        """Apply an event. Must be called while holding ``lock``."""
         font = self.font
         if font is None:
             return
@@ -131,9 +131,9 @@ class PianoSynth:
                 self.font.synth.sounds_off()
 
     def generate(self, frames: int) -> np.ndarray:
-        """Genera ``frames`` campioni stereo nel buffer interno (tenere ``lock``).
+        """Generate ``frames`` stereo samples into the internal buffer (hold ``lock``).
 
-        Ritorna una vista (frames, 2) valida fino alla prossima chiamata.
+        Returns a (frames, 2) view that stays valid until the next call.
         """
         if frames > self.max_block:
             frames = self.max_block
@@ -146,13 +146,13 @@ class PianoSynth:
 
     # --------------------------------------------------------------- render
     def render(self, events, tail_s: float = 3.0, progress=None) -> np.ndarray:
-        """Render offline di una lista di eventi ``(t, tipo, a, b)``.
+        """Offline render of a list of ``(t, kind, a, b)`` events.
 
-        Usa lo stesso soundfont del suono dal vivo. Durante il render il suono
-        dal vivo resta in silenzio (il lock è occupato).
+        Uses the same soundfont as the live sound. While rendering, the live
+        sound is silent (the lock is held).
         """
         if self.font is None:
-            raise UserError("Nessun suono di pianoforte caricato.")
+            raise UserError("No piano sound is loaded.")
         sr = self.samplerate
         evs = sorted(events, key=lambda e: e[0])
         last = evs[-1][0] if evs else 0.0
@@ -161,7 +161,7 @@ class PianoSynth:
         with self.lock:
             self.font.synth.sounds_off()
             self._reset_state()
-            # Scarta l'audio residuo del suono dal vivo.
+            # Discard leftover audio from the live sound.
             self.generate(min(self.max_block, 2048))
             pos = 0
             i = 0
@@ -189,7 +189,7 @@ class PianoSynth:
 
 def trim_silence(audio: np.ndarray, samplerate: int, keep_from: int = 0,
                  threshold: float = 1e-4) -> np.ndarray:
-    """Taglia il silenzio finale dopo ``keep_from`` lasciando 100 ms di margine."""
+    """Trim trailing silence after ``keep_from``, keeping a 100 ms margin."""
     if audio.shape[0] == 0:
         return audio
     loud = np.nonzero(np.abs(audio[keep_from:]).max(axis=1) > threshold)[0]

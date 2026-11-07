@@ -1,4 +1,4 @@
-"""Widget riutilizzabili: indicatore di livello, pannelli, pulsanti grandi."""
+"""Reusable widgets: level meter, panels, big buttons."""
 from __future__ import annotations
 
 import math
@@ -33,7 +33,7 @@ def set_active(button: QPushButton, active: bool) -> None:
 
 
 class LevelMeter(QWidget):
-    """Barra di livello in dBFS con picco trattenuto e avviso di saturazione."""
+    """dBFS level bar with peak hold and clipping warning."""
 
     def __init__(self, parent=None):
         super().__init__(parent)

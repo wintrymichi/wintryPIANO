@@ -1,4 +1,4 @@
-"""Punto di ingresso: configura log, gestione errori e avvia la finestra."""
+"""Entry point: sets up logging and error handling, then opens the window."""
 from __future__ import annotations
 
 import argparse
@@ -8,7 +8,7 @@ import sys
 import threading
 from logging.handlers import RotatingFileHandler
 
-# La DLL di PortAudio con ASIO va scelta prima di importare sounddevice.
+# The PortAudio DLL with ASIO must be chosen before importing sounddevice.
 os.environ.setdefault("SD_ENABLE_ASIO", "1")
 
 from wintrypiano import APP_NAME, __version__  # noqa: E402
@@ -27,16 +27,15 @@ def setup_logging() -> None:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="wintrypiano", description=APP_NAME)
-    ap.add_argument("--demo", action="store_true", help="simula le note di un piano MIDI")
+    ap.add_argument("--demo", action="store_true", help="simulate the notes of a MIDI piano")
     args = ap.parse_args(argv)
     setup_logging()
-    log.info("avvio %s %s (Python %s)", APP_NAME, __version__, sys.version.split()[0])
+    log.info("starting %s %s (Python %s)", APP_NAME, __version__, sys.version.split()[0])
 
     try:
-        from PySide6.QtCore import Qt
         from PySide6.QtWidgets import QApplication, QMessageBox
     except ImportError:
-        print("Manca PySide6. Esegui l'installer (installa.bat) e riprova.")
+        print("PySide6 is missing. Run the installer (install.bat) and try again.")
         return 1
 
     app = QApplication(sys.argv[:1])
@@ -55,14 +54,14 @@ def main(argv=None) -> int:
             pass
 
     def excepthook(exc_type, exc, tb):
-        log.error("errore non gestito", exc_info=(exc_type, exc, tb))
+        log.error("unhandled error", exc_info=(exc_type, exc, tb))
         if issubclass(exc_type, KeyboardInterrupt):
             app.quit()
             return
         show_error(exc)
 
     def thread_hook(args):
-        log.error("errore non gestito nel thread %s", args.thread.name if args.thread else "?",
+        log.error("unhandled error in thread %s", args.thread.name if args.thread else "?",
                   exc_info=(args.exc_type, args.exc_value, args.exc_traceback))
 
     sys.excepthook = excepthook
@@ -76,7 +75,7 @@ def main(argv=None) -> int:
         win = MainWindow(cfg, demo=args.demo)
         win.show()
     except Exception as exc:  # noqa: BLE001
-        log.exception("avvio fallito")
+        log.exception("startup failed")
         show_error(exc)
         return 1
     return app.exec()

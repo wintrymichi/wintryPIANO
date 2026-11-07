@@ -36,7 +36,7 @@ def test_file_is_standard_midi(tmp_path):
 
 
 def test_corrupt_midi_raises_user_error(tmp_path):
-    p = tmp_path / "rotto.mid"
+    p = tmp_path / "broken.mid"
     p.write_bytes(b"MThd\x00\x00garbage")
     with pytest.raises(UserError):
         load_midi(p)

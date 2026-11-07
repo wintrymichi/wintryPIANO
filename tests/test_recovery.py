@@ -11,10 +11,10 @@ def test_recover_piano_and_voice_after_crash(tmp_path):
     vj = VoiceJournal(folder, 48000)
     vj.append(np.ones(1000, np.float32) * 0.25)
     vj.set_offset(-15.0)
-    # simulazione crash: file non chiusi, ultima riga troncata
+    # simulated crash: files not closed, last line truncated
     pj._f.write('[0.9, 0, 6')
     pj._f.flush()
-    vj._f.write(b"\x00\x01")  # campione a metà
+    vj._f.write(b"\x00\x01")  # half a sample
     vj._f.flush()
     rec = find_recovery(folder)
     assert rec.piano_bpm == 90

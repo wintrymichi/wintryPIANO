@@ -1,4 +1,4 @@
-"""Finestra per scegliere o scaricare il suono del pianoforte."""
+"""Dialog to choose or download the piano sound."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -19,15 +19,15 @@ class SoundfontDialog(QDialog):
 
     def __init__(self, parent=None, first_run: bool = False):
         super().__init__(parent)
-        self.setWindowTitle("Suono del pianoforte")
+        self.setWindowTitle("Piano sound")
         self.setMinimumSize(700, 600)
         self._task = None
         lay = QVBoxLayout(self)
         lay.setSpacing(14)
         intro = QLabel(
-            ("Non ho trovato un suono di pianoforte. " if first_run else "") +
-            "Scegli un pianoforte a coda gratuito da scaricare (una sola volta) oppure un file "
-            ".sf2/.sf3 che hai già sul disco.")
+            ("No piano sound was found. " if first_run else "") +
+            "Choose a free grand piano to download (only once), or an .sf2/.sf3 file "
+            "you already have on disk.")
         intro.setWordWrap(True)
         lay.addWidget(intro)
         self.buttons = []
@@ -36,12 +36,12 @@ class SoundfontDialog(QDialog):
             t = QLabel(f"<b>{info.title}</b>")
             d = QLabel(info.description)
             d.setWordWrap(True)
-            meta = QLabel(f"Download circa {info.archive_mb} MB · {info.license}\n{info.author}")
+            meta = QLabel(f"Download about {info.archive_mb} MB · {info.license}\n{info.author}")
             meta.setObjectName("hint")
             row = QHBoxLayout()
             row.addWidget(t, 1)
             have = installed_path(info)
-            b = QPushButton("Usa questo" if have else "Scarica e usa")
+            b = QPushButton("Use this" if have else "Download and use")
             b.clicked.connect(lambda _=False, i=info: self._get(i))
             row.addWidget(b)
             self.buttons.append(b)
@@ -49,14 +49,14 @@ class SoundfontDialog(QDialog):
             panel.layout_.addWidget(d)
             panel.layout_.addWidget(meta)
             lay.addWidget(panel)
-        pick = QPushButton("Scegli un file .sf2 / .sf3 dal disco…")
+        pick = QPushButton("Choose an .sf2 / .sf3 file from disk...")
         pick.clicked.connect(self._pick)
         self.buttons.append(pick)
         lay.addWidget(pick)
         where = QLabel(
-            "Altri pianoforti gratuiti: <a style='color:#8fd3ff' href='https://freepats.zenvoid.org/Piano/'>"
-            "freepats.zenvoid.org/Piano</a> (licenze CC0 e CC BY). Controlla sempre la licenza "
-            "prima di ridistribuire un soundfont.")
+            "More free pianos: <a style='color:#8fd3ff' href='https://freepats.zenvoid.org/Piano/'>"
+            "freepats.zenvoid.org/Piano</a> (CC0 and CC BY licenses). Always check the license "
+            "before redistributing a soundfont.")
         where.setOpenExternalLinks(True)
         where.setWordWrap(True)
         where.setObjectName("hint")
@@ -70,7 +70,7 @@ class SoundfontDialog(QDialog):
         lay.addWidget(self.status)
         bottom = QHBoxLayout()
         bottom.addStretch(1)
-        self.cancel_btn = QPushButton("Chiudi")
+        self.cancel_btn = QPushButton("Close")
         self.cancel_btn.clicked.connect(self._cancel_or_close)
         bottom.addWidget(self.cancel_btn)
         lay.addLayout(bottom)
@@ -79,7 +79,7 @@ class SoundfontDialog(QDialog):
         for b in self.buttons:
             b.setEnabled(not busy)
         self.progress.setVisible(busy)
-        self.cancel_btn.setText("Annulla" if busy else "Chiudi")
+        self.cancel_btn.setText("Cancel" if busy else "Close")
 
     def _get(self, info) -> None:
         have = installed_path(info)
@@ -88,7 +88,7 @@ class SoundfontDialog(QDialog):
             self.accept()
             return
         self._busy(True)
-        self.status.setText("Connessione…")
+        self.status.setText("Connecting...")
         self._cancelled = False
         self._task = run_task(download.install, info, cancel=lambda: self._cancelled,
                               on_done=self._done, on_error=self._failed, on_progress=self._progress)
@@ -107,12 +107,12 @@ class SoundfontDialog(QDialog):
         self._task = None
         self._busy(False)
         if isinstance(exc, download.Cancelled):
-            self.status.setText("Download annullato.")
+            self.status.setText("Download cancelled.")
         else:
             self.status.setText(friendly_message(exc))
 
     def _pick(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Scegli un soundfont", str(Path.home()),
+        path, _ = QFileDialog.getOpenFileName(self, "Choose a soundfont", str(Path.home()),
                                               "SoundFont (*.sf2 *.sf3)")
         if path:
             self.chosen.emit(path)

@@ -1,10 +1,14 @@
-"""Gestione del progetto: una cartella con MIDI, WAV della voce e JSON.
+"""Project handling: a folder with the MIDI, the voice WAV and a JSON file.
 
-    <cartella progetto>/
-        progetto.json   impostazioni del progetto
-        piano.mid       take del piano
-        voce.wav        take della voce (mono, non processata)
-        .recovery/      file temporanei scritti durante la registrazione
+    <project folder>/
+        project.json    project settings
+        piano.mid       piano take
+        voice.wav       voice take (mono, unprocessed)
+        backing.flac    imported audio, if any
+        .recovery/      temporary files written while recording
+
+Projects created by older versions (progetto.json, voce.wav, base.flac) are
+renamed to the new names the first time they are opened.
 """
 from __future__ import annotations
 
@@ -23,34 +27,36 @@ from wintrypiano.errors import TakeExistsError, UserError
 
 log = logging.getLogger(__name__)
 
-PROJECT_FILE = "progetto.json"
+PROJECT_FILE = "project.json"
 PIANO_FILE = "piano.mid"
-VOICE_FILE = "voce.wav"
-BASE_FILE = "base.flac"
+VOICE_FILE = "voice.wav"
+BASE_FILE = "backing.flac"
+# file names used by older (Italian) versions -> current names
+LEGACY_FILES = {"progetto.json": PROJECT_FILE, "voce.wav": VOICE_FILE, "base.flac": BASE_FILE}
 RECOVERY_DIR = ".recovery"
 FORMAT_VERSION = 1
 
 
 @dataclass
 class ProjectSettings:
-    name: str = "Senza titolo"
+    name: str = "Untitled"
     bpm: float = 100.0
     metronome: bool = False
     count_in: bool = True
-    sing_along: bool = False   # registra anche la voce mentre suoni
+    sing_along: bool = False   # also record the voice while playing
     piano_volume: float = 0.8
     piano_reverb: bool = False
     voice_volume: float = 0.9
     voice_reverb: bool = False
-    voice_enhance: bool = True          # EQ, de-esser e compressore (solo riascolto ed export)
-    voice_denoise: bool = True          # riduzione del rumore (solo riascolto ed export)
+    voice_enhance: bool = True          # EQ, de-esser and compressor (playback and export only)
+    voice_denoise: bool = True          # noise reduction (playback and export only)
     voice_denoise_amount: float = 0.6
     voice_auto_offset_ms: float = 0.0
-    voice_user_offset_ms: float = 0.0   # correzione fatta a mano in «Sincronizza tracce»
-    base_name: str = ""                  # nome del file audio importato
+    voice_user_offset_ms: float = 0.0   # manual correction made in "Sync tracks"
+    base_name: str = ""                  # name of the imported audio file
     base_volume: float = 0.8
     base_offset_ms: float = 0.0
-    base_during_rec: bool = True         # la base suona mentre registri piano e voce
+    base_during_rec: bool = True         # the imported audio plays while recording piano and voice
     sample_rate: int = 48000
     soundfont: str = ""
     created: str = ""
@@ -63,7 +69,7 @@ class Project:
         self.settings = settings or ProjectSettings(name=self.folder.name)
         self.dirty = False
 
-    # --------------------------------------------------------------- percorsi
+    # --------------------------------------------------------------- paths
     @property
     def json_path(self) -> Path:
         return self.folder / PROJECT_FILE
@@ -93,16 +99,16 @@ class Project:
     def has_base(self) -> bool:
         return self.base_path.is_file()
 
-    # ------------------------------------------------------------- creazione
+    # ------------------------------------------------------------- creation
     @classmethod
     def create(cls, folder: Path, name: str | None = None) -> "Project":
         folder = Path(folder)
-        if (folder / PROJECT_FILE).exists():
-            raise UserError("In questa cartella c'è già un progetto. Usa «Apri» oppure scegli un'altra cartella.")
+        if (folder / PROJECT_FILE).exists() or (folder / "progetto.json").exists():
+            raise UserError("This folder already contains a project. Use Open, or choose another folder.")
         try:
             folder.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
-            raise UserError("Non riesco a creare la cartella del progetto.") from exc
+            raise UserError("Cannot create the project folder.") from exc
         now = time.strftime("%Y-%m-%d %H:%M:%S")
         proj = cls(folder, ProjectSettings(name=name or folder.name, created=now, modified=now))
         proj.save()
@@ -113,13 +119,14 @@ class Project:
         folder = Path(folder)
         if folder.is_file():
             folder = folder.parent
+        _migrate_legacy(folder)
         path = folder / PROJECT_FILE
         if not path.is_file():
-            raise UserError("Questa cartella non contiene un progetto di Wintry Piano (manca progetto.json).")
+            raise UserError("This folder does not contain a Wintry Piano project (project.json is missing).")
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError) as exc:
-            raise UserError("Il file progetto.json è danneggiato.") from exc
+            raise UserError("The project.json file is damaged.") from exc
         known = {f.name for f in fields(ProjectSettings)}
         settings = ProjectSettings(**{k: v for k, v in data.get("settings", {}).items() if k in known})
         return cls(folder, settings)
@@ -132,7 +139,7 @@ class Project:
             tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
             tmp.replace(self.json_path)
         except OSError as exc:
-            raise UserError("Non riesco a salvare il progetto. Controlla che la cartella sia scrivibile.") from exc
+            raise UserError("Cannot save the project. Check that the folder is writable.") from exc
         self.dirty = False
 
     # ------------------------------------------------------------------ take
@@ -152,7 +159,7 @@ class Project:
     def save_voice_take(self, audio: np.ndarray, samplerate: int, auto_offset_ms: float,
                         overwrite: bool = False) -> Path:
         if self.has_voice() and not overwrite:
-            raise TakeExistsError("voce")
+            raise TakeExistsError("voice")
         tmp = self.voice_path.with_name(VOICE_FILE + ".tmp")
         try:
             audio = np.nan_to_num(audio, nan=0.0, posinf=0.0, neginf=0.0)
@@ -160,46 +167,46 @@ class Project:
             tmp.replace(self.voice_path)
         except Exception as exc:
             tmp.unlink(missing_ok=True)
-            raise UserError("Non riesco a salvare la registrazione della voce.") from exc
+            raise UserError("Cannot save the voice recording.") from exc
         self.settings.voice_auto_offset_ms = float(auto_offset_ms)
-        self.settings.voice_user_offset_ms = 0.0  # nuova take: la correzione a mano non vale più
+        self.settings.voice_user_offset_ms = 0.0  # new take: the manual correction no longer applies
         self.save()
         return self.voice_path
 
     def load_voice_take(self):
-        """Ritorna (audio mono float32, samplerate) oppure (None, 0)."""
+        """Return (mono float32 audio, samplerate) or (None, 0)."""
         if not self.has_voice():
             return None, 0
         try:
             audio, sr = sf.read(str(self.voice_path), dtype="float32", always_2d=True)
         except Exception as exc:
-            raise UserError("Il file della voce è danneggiato o non leggibile.") from exc
+            raise UserError("The voice file is damaged or unreadable.") from exc
         return audio[:, 0].copy(), sr
 
     def save_base(self, audio: np.ndarray, samplerate: int, name: str, overwrite: bool = False) -> Path:
-        """Salva l'audio importato (stereo) come base del progetto."""
+        """Save the imported audio (stereo) as the project's backing track."""
         if self.has_base() and not overwrite:
-            raise TakeExistsError("audio importato")
+            raise TakeExistsError("imported audio")
         tmp = self.base_path.with_name(BASE_FILE + ".tmp")
         try:
             sf.write(str(tmp), np.clip(audio, -1.0, 1.0), samplerate, subtype="PCM_24", format="FLAC")
             tmp.replace(self.base_path)
         except Exception as exc:
             tmp.unlink(missing_ok=True)
-            raise UserError("Non riesco a salvare l'audio importato nel progetto.") from exc
+            raise UserError("Cannot save the imported audio in the project.") from exc
         self.settings.base_name = name
         self.settings.base_offset_ms = 0.0
         self.save()
         return self.base_path
 
     def load_base(self):
-        """Ritorna (audio stereo float32, samplerate) oppure (None, 0)."""
+        """Return (stereo float32 audio, samplerate) or (None, 0)."""
         if not self.has_base():
             return None, 0
         try:
             audio, sr = sf.read(str(self.base_path), dtype="float32", always_2d=True)
         except Exception as exc:
-            raise UserError("L'audio importato è danneggiato o non leggibile.") from exc
+            raise UserError("The imported audio is damaged or unreadable.") from exc
         return audio, sr
 
     def remove_base(self) -> None:
@@ -209,7 +216,7 @@ class Project:
         self.save()
 
     def import_midi(self, path: Path, overwrite: bool = False, trim_start: bool = False) -> int:
-        """Importa un file MIDI come take del piano. Ritorna il numero di note."""
+        """Import a MIDI file as the piano take. Return the number of notes."""
         from wintrypiano.core.midi_import import import_events
 
         if self.has_piano() and not overwrite:
@@ -222,11 +229,11 @@ class Project:
         return notes
 
     def change_piano_speed(self, speed: float) -> None:
-        """Rende la take del piano più veloce (speed > 1) o più lenta, riscrivendo piano.mid."""
+        """Make the piano take faster (speed > 1) or slower, rewriting piano.mid."""
         from wintrypiano.core.align import stretch_events
 
         if speed <= 0:
-            raise UserError("Velocità non valida.")
+            raise UserError("Invalid speed.")
         if abs(speed - 1.0) < 1e-6 or not self.has_piano():
             return
         events = stretch_events(self.load_piano_take(), speed)
@@ -249,12 +256,24 @@ class Project:
                            base_volume=s.base_volume, base_offset_ms=s.base_offset_ms)
 
 
+def _migrate_legacy(folder: Path) -> None:
+    """Rename the files of projects created by older versions to the current names."""
+    for old, new in LEGACY_FILES.items():
+        src, dst = folder / old, folder / new
+        if src.is_file() and not dst.exists():
+            try:
+                src.replace(dst)
+                log.info("project file renamed: %s -> %s", old, new)
+            except OSError:
+                log.warning("cannot rename %s in %s", old, folder)
+
+
 def default_project_folder(base: Path) -> Path:
-    """Prima cartella libera «Progetto N» dentro ``base``."""
+    """First free "Project N" folder inside ``base``."""
     base = Path(base)
     i = 1
     while True:
-        cand = base / f"Progetto {i}"
+        cand = base / f"Project {i}"
         if not (cand / PROJECT_FILE).exists() and not (cand.exists() and any(cand.iterdir())):
             return cand
         i += 1

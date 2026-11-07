@@ -1,8 +1,8 @@
-"""Riverbero semplice stile Freeverb, vettorizzato a blocchi con numpy.
+"""Simple Freeverb-style reverb, vectorised in blocks with numpy.
 
-I filtri comb e allpass hanno ritardi maggiori della dimensione del
-sotto-blocco, quindi ogni sotto-blocco si calcola senza loop per campione.
-Tutti i buffer sono pre-allocati: ``process`` può girare nella callback audio.
+The comb and allpass filters have delays longer than the sub-block size, so
+each sub-block is computed without a per-sample loop. All buffers are
+preallocated: ``process`` can run inside the audio callback.
 """
 from __future__ import annotations
 
@@ -11,22 +11,22 @@ import numpy as np
 _COMBS = (1116, 1188, 1277, 1356, 1422, 1491, 1557, 1617)
 _ALLPASS = (556, 441, 341, 225)
 _SPREAD = 23
-_SUB = 200  # dimensione massima del sotto-blocco (< ritardo minimo)
+_SUB = 200  # maximum sub-block size (< shortest delay)
 
 
 class _Delay:
-    """Linea di ritardo circolare con lettura/scrittura a blocchi senza allocazioni."""
+    """Circular delay line with allocation-free block reads and writes."""
 
     def __init__(self, delay: int, maxblock: int):
         self.delay = delay
         self.size = delay + maxblock + 2
         self.buf = np.zeros(self.size, dtype=np.float32)
-        self.pos = 0  # prossimo indice di scrittura
+        self.pos = 0  # next write index
         self._idx = np.empty(maxblock, dtype=np.int64)
         self._ar = np.arange(maxblock, dtype=np.int64)
 
     def read(self, extra: int, n: int, out: np.ndarray) -> None:
-        """out[i] = y[t+i - delay - extra] con t = posizione di scrittura."""
+        """out[i] = y[t+i - delay - extra] where t = write position."""
         idx = self._idx[:n]
         np.add(self._ar[:n], self.pos - self.delay - extra, out=idx)
         np.remainder(idx, self.size, out=idx)
@@ -70,7 +70,7 @@ class SimpleReverb:
                 d.reset()
 
     def process(self, block: np.ndarray) -> np.ndarray:
-        """Aggiunge il riverbero in-place a un blocco stereo (frames, 2) float32."""
+        """Add reverb in place to a stereo (frames, 2) float32 block."""
         n_total = block.shape[0]
         pos = 0
         while pos < n_total:
@@ -83,7 +83,7 @@ class SimpleReverb:
         fb = self.room
         d = self.damp
         x = self._in[:n]
-        # ingresso mono (somma dei canali), attenuato come Freeverb
+        # mono input (sum of channels), attenuated as in Freeverb
         np.add(block[:, 0], block[:, 1], out=x)
         x *= 0.015
         for ch in range(2):
@@ -93,7 +93,7 @@ class SimpleReverb:
             t2 = self._t2[:n]
             y = self._y[:n]
             for comb in self.combs[ch]:
-                comb.read(0, n, t1)          # y[n-D]  (uscita del comb)
+                comb.read(0, n, t1)          # y[n-D]  (comb output)
                 comb.read(1, n, t2)          # y[n-D-1]
                 acc += t1
                 # y = x + fb*((1-d)*t1 + d*t2)
@@ -115,7 +115,7 @@ class SimpleReverb:
 
 def apply_reverb_offline(audio: np.ndarray, samplerate: int, wet: float = 0.22,
                          tail_s: float = 2.5) -> np.ndarray:
-    """Applica il riverbero a un intero file, aggiungendo la coda."""
+    """Apply reverb to a whole file, adding the tail."""
     tail = int(tail_s * samplerate)
     out = np.zeros((audio.shape[0] + tail, 2), dtype=np.float32)
     out[:audio.shape[0]] = audio

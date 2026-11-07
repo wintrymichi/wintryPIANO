@@ -1,4 +1,4 @@
-"""Mix offline di piano, voce e base importata, con protezione dal clipping."""
+"""Offline mix of piano, voice and imported audio, with clipping protection."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -16,13 +16,13 @@ class MixSettings:
     piano_reverb: bool = False
     voice_volume: float = 0.9
     voice_reverb: bool = False
-    voice_offset_ms: float = 0.0  # >0 ritarda la voce, <0 la anticipa
+    voice_offset_ms: float = 0.0  # >0 delays the voice, <0 moves it earlier
     base_volume: float = 0.8
-    base_offset_ms: float = 0.0   # >0 la base parte dopo il piano, <0 prima
+    base_offset_ms: float = 0.0   # >0 the imported audio starts after the piano, <0 before
 
 
 def shift(audio: np.ndarray, frames: int) -> np.ndarray:
-    """Sposta l'audio di ``frames`` (positivo = ritardo)."""
+    """Shift the audio by ``frames`` (positive = delay)."""
     if frames > 0:
         pad = np.zeros((frames,) + audio.shape[1:], dtype=audio.dtype)
         return np.concatenate([pad, audio])
@@ -40,7 +40,7 @@ def to_stereo(audio: np.ndarray) -> np.ndarray:
 
 
 def prevent_clipping(mix: np.ndarray, target: float = TARGET_PEAK) -> tuple[np.ndarray, float]:
-    """Abbassa il volume se il picco supera ``target``. Ritorna (audio, guadagno)."""
+    """Lower the volume if the peak exceeds ``target``. Return (audio, gain)."""
     if mix.size == 0:
         return mix, 1.0
     peak = float(np.max(np.abs(mix)))
@@ -57,7 +57,7 @@ def ms_to_frames(ms: float, samplerate: int) -> int:
 
 
 def lead_frames(settings: MixSettings, samplerate: int, has_base: bool) -> int:
-    """Quanto silenzio serve prima del piano perché una base che parte prima non venga tagliata."""
+    """Silence needed before the piano so that imported audio starting earlier is not cut."""
     if not has_base:
         return 0
     return max(0, -ms_to_frames(settings.base_offset_ms, samplerate))
@@ -65,10 +65,10 @@ def lead_frames(settings: MixSettings, samplerate: int, has_base: bool) -> int:
 
 def combine(piano: np.ndarray | None, voice: np.ndarray | None, samplerate: int,
             settings: MixSettings, base: np.ndarray | None = None) -> tuple[np.ndarray, int]:
-    """Somma le tracce sulla linea del tempo comune, senza normalizzare.
+    """Sum the tracks on the common timeline, without normalising.
 
-    Il tempo 0 è l'inizio del piano. Se la base parte prima (offset negativo) tutto
-    viene spostato in avanti di ``lead`` campioni, che la funzione ritorna.
+    Time 0 is the start of the piano. If the imported audio starts earlier (negative
+    offset) everything is moved forward by ``lead`` samples, which is returned.
     """
     has_base = base is not None and base.shape[0] > 0
     lead = lead_frames(settings, samplerate, has_base)
@@ -99,8 +99,8 @@ def combine(piano: np.ndarray | None, voice: np.ndarray | None, samplerate: int,
 
 def mix_tracks(piano: np.ndarray | None, voice: np.ndarray | None, samplerate: int,
                settings: MixSettings, base: np.ndarray | None = None) -> tuple[np.ndarray, float]:
-    """Mixa piano (stereo, già renderizzato e senza effetti), voce (mono) e base (stereo)
-    e abbassa il volume se servirebbe per non andare in clipping."""
+    """Mix piano (stereo, already rendered, no effects), voice (mono) and imported audio
+    (stereo), lowering the volume when needed to avoid clipping."""
     out, _lead = combine(piano, voice, samplerate, settings, base)
     if out.shape[0] == 0:
         return out, 1.0

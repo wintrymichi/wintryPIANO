@@ -1,4 +1,4 @@
-"""Modalità demo: simula un piano MIDI che suona, per provare tutto senza hardware."""
+"""Demo mode: simulates a MIDI piano playing, to try everything without hardware."""
 from __future__ import annotations
 
 import random
@@ -8,7 +8,7 @@ from typing import Callable
 
 from wintrypiano.core.events import CC_SUSTAIN, CONTROL, NOTE_OFF, NOTE_ON
 
-# Progressione in Do maggiore: (accordo, melodia)
+# Progression in C major: (chord, melody)
 _PROGRESSION = [
     ((48, 55, 60, 64), (72, 74, 76, 79)),
     ((45, 52, 57, 60), (76, 74, 72, 69)),
@@ -18,7 +18,7 @@ _PROGRESSION = [
 
 
 def demo_events(bpm: float = 100.0, bars: int = 4, seed: int = 7):
-    """Genera eventi ``(t, tipo, a, b)`` di un breve brano con pedale."""
+    """Generate ``(t, kind, a, b)`` events for a short piece with sustain pedal."""
     rnd = random.Random(seed)
     beat = 60.0 / bpm
     events = []
@@ -40,7 +40,7 @@ def demo_events(bpm: float = 100.0, bars: int = 4, seed: int = 7):
 
 
 class DemoPlayer(threading.Thread):
-    """Invia in loop gli eventi demo a ``sink`` come farebbe un vero piano."""
+    """Send the demo events to ``sink`` in a loop, like a real piano would."""
 
     def __init__(self, sink: Callable[[int, int, int], None], bpm: float = 100.0):
         super().__init__(daemon=True, name="wintry-demo")
@@ -63,7 +63,7 @@ class DemoPlayer(threading.Thread):
                     break
                 self.sink(kind, a, b)
             seed += 1
-        # rilascia tutto
+        # release everything
         self.sink(CONTROL, CC_SUSTAIN, 0)
         for n in range(21, 109):
             self.sink(NOTE_OFF, n, 0)

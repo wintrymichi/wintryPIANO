@@ -1,9 +1,9 @@
-"""Scrittura progressiva delle registrazioni su disco per il recupero dopo un crash.
+"""Progressive writing of recordings to disk, for recovery after a crash.
 
-Durante la registrazione un thread (mai la callback audio) aggiunge gli eventi
-MIDI a ``piano.jsonl`` e i campioni della voce a ``voce.raw`` (float32 mono),
-svuotando il buffer su disco a ogni scrittura. Al riavvio, se questi file
-esistono, la registrazione si è interrotta e si può recuperare.
+While recording, a thread (never the audio callback) appends MIDI events to
+``piano.jsonl`` and voice samples to ``voice.raw`` (float32 mono), flushing to
+disk on every write. On restart, if these files exist, the recording was
+interrupted and can be recovered.
 """
 from __future__ import annotations
 
@@ -18,8 +18,10 @@ import numpy as np
 log = logging.getLogger(__name__)
 
 PIANO_JOURNAL = "piano.jsonl"
-VOICE_JOURNAL = "voce.raw"
-VOICE_META = "voce.json"
+VOICE_JOURNAL = "voice.raw"
+OLD_VOICE_JOURNAL = "voce.raw"   # projects created by older versions
+VOICE_META = "voice.json"
+OLD_VOICE_META = "voce.json"
 
 
 class PianoJournal:
@@ -73,7 +75,7 @@ class VoiceJournal:
         self._f.write(np.ascontiguousarray(samples, dtype=np.float32).tobytes())
         self._f.flush()
         self._since_sync += samples.size
-        if self._since_sync > 48000:  # circa ogni secondo
+        if self._since_sync > 48000:  # about once a second
             try:
                 os.fsync(self._f.fileno())
             except OSError:
@@ -101,7 +103,7 @@ class Recovered:
 
 
 def find_recovery(folder: Path) -> Recovered:
-    """Legge tutto ciò che è recuperabile da una cartella .recovery."""
+    """Read everything recoverable from a .recovery folder."""
     rec = Recovered()
     folder = Path(folder)
     pj = folder / PIANO_JOURNAL
@@ -113,22 +115,25 @@ def find_recovery(folder: Path) -> Recovered:
                     try:
                         obj = json.loads(line)
                     except ValueError:
-                        break  # ultima riga troncata dal crash
+                        break  # last line cut off by the crash
                     if isinstance(obj, dict):
                         rec.piano_bpm = float(obj.get("bpm", 120.0))
                     elif isinstance(obj, list) and len(obj) == 4:
                         events.append((float(obj[0]), int(obj[1]), int(obj[2]), int(obj[3])))
         except OSError:
-            log.exception("journal piano illeggibile")
+            log.exception("unreadable piano journal")
         rec.piano_events = events or None
     vj = folder / VOICE_JOURNAL
+    meta_name = VOICE_META
+    if not vj.is_file() and (folder / OLD_VOICE_JOURNAL).is_file():
+        vj, meta_name = folder / OLD_VOICE_JOURNAL, OLD_VOICE_META
     if vj.is_file():
         try:
             raw = vj.read_bytes()
             raw = raw[: len(raw) - (len(raw) % 4)]
             audio = np.frombuffer(raw, dtype=np.float32).copy()
             meta = {}
-            mp = folder / VOICE_META
+            mp = folder / meta_name
             if mp.is_file():
                 try:
                     meta = json.loads(mp.read_text(encoding="utf-8"))
@@ -139,10 +144,10 @@ def find_recovery(folder: Path) -> Recovered:
                 rec.voice_samplerate = int(meta.get("samplerate", 48000))
                 rec.voice_offset_ms = float(meta.get("auto_offset_ms", 0.0))
         except OSError:
-            log.exception("journal voce illeggibile")
+            log.exception("unreadable voice journal")
     return rec
 
 
 def clear_recovery(folder: Path) -> None:
-    for name in (PIANO_JOURNAL, VOICE_JOURNAL, VOICE_META):
+    for name in (PIANO_JOURNAL, VOICE_JOURNAL, VOICE_META, OLD_VOICE_JOURNAL, OLD_VOICE_META):
         (Path(folder) / name).unlink(missing_ok=True)

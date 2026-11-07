@@ -1,4 +1,4 @@
-"""Wintry Piano: suona un piano MIDI, registralo e cantaci sopra."""
+"""Wintry Piano: play a MIDI piano, record it and sing over it."""
 
 APP_NAME = "wintry piano"
 APP_ID = "WintryPiano"

@@ -1,4 +1,4 @@
-"""Salvataggio e lettura della take del piano come file MIDI standard."""
+"""Saves and loads the piano take as a standard MIDI file."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -12,7 +12,7 @@ TICKS_PER_BEAT = 960
 
 
 def save_midi(events, path: Path, bpm: float = 120.0) -> None:
-    """Scrive gli eventi ``(t, tipo, a, b)`` in un MIDI di tipo 0."""
+    """Write ``(t, kind, a, b)`` events to a type 0 MIDI file."""
     tempo = mido.bpm2tempo(bpm)
     mid = mido.MidiFile(type=0, ticks_per_beat=TICKS_PER_BEAT)
     track = mido.MidiTrack()
@@ -42,22 +42,22 @@ def save_midi(events, path: Path, bpm: float = 120.0) -> None:
 
 
 def load_midi(path: Path, skip_drums: bool = False):
-    """Legge un file MIDI e ritorna (eventi, bpm).
+    """Read a MIDI file and return (events, bpm).
 
-    Con ``skip_drums`` ignora il canale 10 (batteria), che suonato col pianoforte
-    darebbe note sbagliate. Tutti gli altri canali finiscono sul pianoforte.
+    With ``skip_drums`` channel 10 (drums) is ignored, since played on a piano it
+    would give wrong notes. All other channels are played on the piano.
     """
     from wintrypiano.core.events import from_mido
 
     try:
         mid = mido.MidiFile(str(path))
     except (OSError, EOFError, ValueError, KeyError) as exc:
-        raise UserError(f"Il file MIDI «{Path(path).name}» è danneggiato o non leggibile.") from exc
+        raise UserError(f"The MIDI file \"{Path(path).name}\" is damaged or unreadable.") from exc
     bpm = 120.0
     events = []
     t = 0.0
     tempo_found = False
-    for msg in mid:  # l'iterazione converte già i delta in secondi
+    for msg in mid:  # iterating already converts deltas to seconds
         t += msg.time
         if msg.is_meta:
             if msg.type == "set_tempo" and not tempo_found:

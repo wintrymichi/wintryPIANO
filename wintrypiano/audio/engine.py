@@ -1,9 +1,9 @@
-"""Motore audio in tempo reale.
+"""Real-time audio engine.
 
-Tutto ciò che gira nella callback audio usa buffer pre-allocati e non tocca
-mai il disco: gli eventi MIDI arrivano da una ``deque`` (thread-safe), la voce
-registrata finisce in un ``RingBuffer`` che un thread separato scrive su disco.
-La GUI legge lo stato del motore con un timer (polling), senza bloccarsi.
+Everything that runs in the audio callback uses preallocated buffers and never
+touches the disk: MIDI events arrive through a ``deque`` (thread-safe), and the
+recorded voice goes into a ``RingBuffer`` that a separate thread writes to disk.
+The GUI reads the engine state with a timer (polling), without blocking.
 """
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ class AudioEngine:
         self.synth = synth
         self.midi_queue: deque = deque(maxlen=8192)
         self.rec_queue: deque = deque()
-        # parametri modificabili dalla GUI (assegnazioni atomiche)
+        # parameters changed by the GUI (atomic assignments)
         self.piano_volume = 0.8
         self.piano_reverb = False
         self.metronome_enabled = False
@@ -53,12 +53,12 @@ class AudioEngine:
         self.input_error = ""
         self.output_latency = 0.0
         self.input_latency = 0.0
-        self.clock = None        # solo per i test: sostituisce l'orologio dello stream
-        self.monitor_extra = 0   # margine (campioni) del monitor, cresce solo se servono
+        self.clock = None        # tests only: replaces the stream clock
+        self.monitor_extra = 0   # monitor safety margin (samples), grows only when needed
         self.monitor_underruns = 0
         self._setup(samplerate)
 
-    # ------------------------------------------------------------ allocazioni
+    # ------------------------------------------------------------ allocations
     def _setup(self, samplerate: int) -> None:
         self.samplerate = int(samplerate)
         sr = self.samplerate
@@ -90,14 +90,14 @@ class AudioEngine:
         self.mic_clip = False
         self.stream_finished = False
 
-    # -------------------------------------------------------------- apertura
+    # -------------------------------------------------------------- opening
     @property
     def is_open(self) -> bool:
         return any(s is not None for s in (self._out, self._in, self._duplex))
 
     def open(self, output: devmod.Device, input_dev: devmod.Device | None, blocksize: int,
              exclusive: bool = False, samplerate: int | None = None) -> int:
-        """Apre gli stream. Ritorna il samplerate effettivo."""
+        """Open the streams. Return the actual sample rate."""
         sd = devmod.sd()
         self.close()
         self._closing = False
@@ -131,13 +131,13 @@ class AudioEngine:
                     self.output_latency = self._out.latency
                 last_exc = None
                 break
-            except Exception as exc:  # PortAudioError o parametri non supportati
+            except Exception as exc:  # PortAudioError or unsupported parameters
                 last_exc = exc
                 self._safe_close_all()
         if last_exc is not None:
-            log.warning("apertura uscita fallita: %s", last_exc)
-            raise UserError(f"Non riesco ad aprire l'uscita audio «{output.name}». "
-                            "Prova un altro dispositivo o un buffer più grande nelle impostazioni.") from last_exc
+            log.warning("opening the output failed: %s", last_exc)
+            raise UserError(f"Cannot open the audio output \"{output.name}\". "
+                            "Try another device or a larger buffer in the settings.") from last_exc
         self.hostapi = output.hostapi
         self.output_name = output.name
         self.input_name = ""
@@ -146,8 +146,8 @@ class AudioEngine:
             if input_dev.hostapi == "Windows WASAPI":
                 in_extra = sd.WasapiSettings(exclusive=exclusive, auto_convert=not exclusive)
             try:
-                # Alcuni microfoni USB in WASAPI esclusivo danno segnale solo se aperti
-                # col loro numero di canali (spesso 2): apro così e poi faccio la media.
+                # Some USB microphones in WASAPI exclusive mode only deliver a signal when
+                # opened with their own channel count (often 2): open them so, then average.
                 in_ch = max(1, min(2, int(getattr(input_dev, "max_input", 1) or 1)))
                 self._in = sd.InputStream(
                     samplerate=self.samplerate, blocksize=self.blocksize, device=input_dev.index,
@@ -157,10 +157,10 @@ class AudioEngine:
                 self.input_latency = self._in.latency
                 self.input_name = input_dev.name
             except Exception as exc:
-                log.warning("apertura microfono fallita: %s", exc)
+                log.warning("opening the microphone failed: %s", exc)
                 self._in = None
-                self.input_error = (f"Non riesco ad aprire il microfono «{input_dev.name}». "
-                                    "Controlla che sia collegato e che Windows consenta l'accesso al microfono.")
+                self.input_error = (f"Cannot open the microphone \"{input_dev.name}\". "
+                                    "Check that it is connected and that Windows allows access to the microphone.")
         elif duplex:
             self.input_name = input_dev.name
         return self.samplerate
@@ -187,18 +187,18 @@ class AudioEngine:
             self.stream_finished = True
 
     def monitor_latency_ms(self) -> float:
-        """Latenza stimata voce → cuffie quando ascolti il microfono."""
+        """Estimated voice-to-headphones latency when monitoring the microphone."""
         b = self.blocksize / self.samplerate
         return (self.input_latency + self.output_latency + b + self.monitor_extra / self.samplerate) * 1000.0
 
     def estimated_latency_ms(self) -> float:
-        """Latenza stimata tasto → suono: un buffer + latenza dichiarata dall'uscita."""
+        """Estimated key-to-sound latency: one buffer + the latency reported by the output."""
         base = self.blocksize / self.samplerate
         return (base + (self.output_latency or base)) * 1000.0
 
-    # -------------------------------------------------------------- comandi
+    # -------------------------------------------------------------- commands
     def now(self) -> float:
-        """Ora sull'orologio dello stream audio (lo stesso dei tempi della callback), 0 se non c'è."""
+        """Current time on the audio stream clock (same as the callback times), 0 if there is none."""
         if self.clock is not None:
             return self.clock()
         stream = self._duplex or self._out
@@ -210,14 +210,14 @@ class AudioEngine:
             return 0.0
 
     def note_event(self, kind: int, a: int, b: int) -> None:
-        # salvo l'istante in cui è arrivata la nota: in registrazione la metto nel punto
-        # in cui l'hai suonata davvero, non in quello in cui la callback l'ha letta
+        # keep the moment the note arrived: when recording, it is placed where it was
+        # actually played, not where the callback happened to read it
         self.midi_queue.append((kind, a, b, self.now()))
 
     def start_piano_recording(self, bpm: float, count_in_beats: int, with_voice: bool = False,
                               backing: np.ndarray | None = None) -> None:
-        """Registra il piano (MIDI). Con ``with_voice`` registra anche il microfono
-        nella stessa take, allineato al piano come nella registrazione della voce."""
+        """Record the piano (MIDI). With ``with_voice`` the microphone is recorded in the
+        same take too, aligned to the piano as in a voice recording."""
         self._with_voice = with_voice
         self._playback = None if backing is None else np.ascontiguousarray(backing, dtype=np.float32)
         self._play_pos = 0
@@ -254,7 +254,7 @@ class AudioEngine:
         return 0.0
 
     def play(self, audio: np.ndarray, bpm: float | None = None) -> None:
-        """Riproduce un array stereo già pronto (riascolto piano o mix)."""
+        """Play a ready stereo array (piano playback or mix)."""
         self._playback = np.ascontiguousarray(audio, dtype=np.float32)
         self._play_pos = 0
         if bpm:
@@ -276,7 +276,7 @@ class AudioEngine:
         self.mode = REC_VOICE
 
     def voice_offset_ms(self) -> float:
-        """Compensazione automatica: dove cade il primo campione della voce rispetto al piano."""
+        """Automatic compensation: where the first voice sample falls relative to the piano."""
         dac, adc = getattr(self, "_dac_time", None), getattr(self, "_adc_time", None)
         if dac and adc:
             return (adc - dac) * 1000.0
@@ -305,7 +305,7 @@ class AudioEngine:
             self.xruns += 1
         try:
             self._process_output(outdata, frames, time_info.outputBufferDacTime)
-        except Exception as exc:  # mai propagare dalla callback
+        except Exception as exc:  # never propagate out of the callback
             outdata.fill(0)
             self.callback_errors += 1
             self.last_error = exc
@@ -357,21 +357,21 @@ class AudioEngine:
         q = self.midi_queue
         scratch = self._scratch[:frames]
 
-        # Stato della registrazione del piano / conto alla rovescia
+        # Piano recording / count-in state
         if mode == COUNT_IN and self._session_frame >= self._rec_offset:
             self.mode = mode = REC_PIANO
             self._begin_rec()
 
-        # Suona e canta: la voce parte esattamente all'inizio della take del piano
+        # Play and sing: the voice starts exactly at the start of the piano take
         if mode == REC_PIANO and self._with_voice and not self._capture:
             self._dac_time = dac_time
             self._capture = True
 
-        # 1) eventi MIDI + suono dal vivo
+        # 1) MIDI events + live sound
         if synth.lock.acquire(False):
             try:
-                # Registro anche le note suonate nell'ultimo mezzo battito del conto
-                # alla rovescia (chi attacca un po' in anticipo): finiscono a t=0.
+                # Also record notes played in the last half beat of the count-in
+                # (for players who come in slightly early): they land at t=0.
                 recording = mode == REC_PIANO or (
                     mode == COUNT_IN
                     and self._session_frame >= self._rec_offset - self.metronome.beat_frames // 2)
@@ -383,9 +383,9 @@ class AudioEngine:
                     while q:
                         kind, a, b, when = q.popleft()
                         synth.handle(kind, a, b)
-                        # Linea del tempo = quando il suono esce dalle cuffie (come per la voce).
-                        # La nota è arrivata a «when»; questo blocco uscirà a «dac_time»:
-                        # la differenza è la latenza dell'uscita più l'attesa della callback.
+                        # Timeline = when the sound leaves the headphones (as for the voice).
+                        # The note arrived at "when"; this block will play at "dac_time":
+                        # the difference is the output latency plus the callback wait.
                         if when and dac_time:
                             dt = (when - dac_time) * sr
                             if not max_back <= dt <= 0:
@@ -406,9 +406,9 @@ class AudioEngine:
             finally:
                 synth.lock.release()
         else:
-            q.clear()  # render offline in corso: gli eventi live vengono scartati
+            q.clear()  # offline render in progress: live events are dropped
 
-        # 2) riproduzione (riascolto o piano sotto la voce)
+        # 2) playback (review, or the piano under the voice)
         pb = self._playback
         if pb is not None and mode in (PLAYING, REC_VOICE, REC_PIANO):
             if mode == REC_VOICE and not self._capture:
@@ -429,7 +429,7 @@ class AudioEngine:
                 self._capture = True
             self._play_pos += frames
 
-        # 3) metronomo (mai registrato: il piano si salva come MIDI, la voce dal microfono)
+        # 3) metronome (never recorded: the piano is saved as MIDI, the voice from the mic)
         if mode == COUNT_IN or (self.metronome_enabled and mode in (REC_PIANO, REC_VOICE, PLAYING)):
             self.metronome.render_into(out, frames, self.metronome_gain)
         else:
@@ -437,11 +437,11 @@ class AudioEngine:
         if mode != IDLE:
             self._session_frame += frames
 
-        # 4) ascolto del microfono in cuffia
+        # 4) microphone monitoring in the headphones
         if self.monitor_enabled:
             ring = self.monitor_ring
-            # latenza minima: tengo al massimo un blocco (più un margine che cresce
-            # solo se l'ingresso arriva in ritardo e il suono si interromperebbe)
+            # lowest latency: keep at most one block (plus a margin that grows only
+            # when the input arrives late and the sound would drop out)
             excess = ring.available() - frames - self.monitor_extra
             if excess > 0:
                 ring._read += excess  # noqa: SLF001
@@ -449,8 +449,8 @@ class AudioEngine:
             got = ring.read_into(m)
             if 0 < got < frames or (got == 0 and self._mon_had_data):
                 self.monitor_underruns += 1
-                # WASAPI condiviso consegna il microfono a pacchetti di ~10 ms anche con
-                # buffer piccoli: il margine può arrivare a 2 buffer o 12 ms
+                # shared WASAPI delivers the mic in ~10 ms packets even with small
+                # buffers: the margin can grow to 2 buffers or 12 ms
                 if self.monitor_extra < max(2 * frames, int(0.012 * self.samplerate)):
                     self.monitor_extra += max(16, frames // 4)
             self._mon_had_data = got > 0
@@ -464,7 +464,7 @@ class AudioEngine:
 
 
 class RecordingWriter(threading.Thread):
-    """Thread che svuota le code del motore e scrive i file di recupero."""
+    """Thread that drains the engine queues and writes the recovery files."""
 
     def __init__(self, engine: AudioEngine, piano_journal=None, voice_journal=None):
         super().__init__(daemon=True, name="wintry-writer")
@@ -502,9 +502,9 @@ class RecordingWriter(threading.Thread):
                     if not self._offset_written and self.engine._adc_time is not None:  # noqa: SLF001
                         self.voice_journal.set_offset(self.engine.voice_offset_ms())
                         self._offset_written = True
-        except Exception as exc:  # disco pieno, ecc.
+        except Exception as exc:  # disk full, etc.
             self.error = exc
-            log.exception("errore nel thread di scrittura")
+            log.exception("error in the writer thread")
 
     def finish(self) -> None:
         self._stop_evt.set()

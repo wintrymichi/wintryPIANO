@@ -1,13 +1,13 @@
-"""Strumenti per sincronizzare le tracce: forme d'onda e allineamento automatico."""
+"""Track synchronisation tools: waveforms and automatic alignment."""
 from __future__ import annotations
 
 import numpy as np
 
-ENV_RATE = 200  # campioni al secondo dell'inviluppo usato per l'allineamento
+ENV_RATE = 200  # samples per second of the envelope used for alignment
 
 
 def peaks(audio: np.ndarray, samplerate: int, per_second: int = 100) -> np.ndarray:
-    """Picchi (massimo assoluto) a ``per_second`` valori al secondo, per disegnare la forma d'onda."""
+    """Peaks (absolute maximum) at ``per_second`` values per second, to draw the waveform."""
     if audio is None or audio.shape[0] == 0:
         return np.zeros(0, dtype=np.float32)
     mono = np.abs(audio).max(axis=1) if audio.ndim == 2 else np.abs(audio)
@@ -18,20 +18,20 @@ def peaks(audio: np.ndarray, samplerate: int, per_second: int = 100) -> np.ndarr
 
 
 def onset_envelope(audio: np.ndarray, samplerate: int, normalise: bool = True) -> np.ndarray:
-    """Inviluppo degli attacchi (spectral flux), a ENV_RATE valori al secondo.
+    """Onset envelope (spectral flux), at ENV_RATE values per second.
 
-    Misura quanto cresce lo spettro da un istante all'altro: è alto quando parte una
-    nota e resta basso sui suoni tenuti, anche quando due note vicine «battono».
+    Measures how much the spectrum grows from one moment to the next: it is high
+    when a note starts and stays low on held sounds, even when two close notes beat.
     """
     mono = audio.mean(axis=1) if audio.ndim == 2 else audio
     mono = np.ascontiguousarray(mono, dtype=np.float32)
-    hop = samplerate / ENV_RATE   # può non essere intero (44100 Hz): uso posizioni esatte
+    hop = samplerate / ENV_RATE   # may not be an integer (44100 Hz): use exact positions
     win = 1 << int(np.ceil(np.log2(samplerate * 0.04)))   # ~40 ms
     n = int((mono.shape[0] - win) // hop) + 1
     if n < 2:
         return np.zeros(0, dtype=np.float64)
     window = np.hanning(win).astype(np.float32)
-    # solo le frequenze utili (30 Hz – 8 kHz): meno calcoli, meno rumore
+    # only the useful frequencies (30 Hz - 8 kHz): less work, less noise
     lo = max(1, int(30 * win / samplerate))
     hi = min(win // 2, int(8000 * win / samplerate))
     flux = np.zeros(n, dtype=np.float64)
@@ -48,17 +48,17 @@ def onset_envelope(audio: np.ndarray, samplerate: int, normalise: bool = True) -
         both = np.concatenate([prev, mag], axis=0)
         flux[start:stop] = np.maximum(0.0, np.diff(both, axis=0)).sum(axis=1)
         prev = mag[-1:]
-    # il frame i copre [i·hop, i·hop+win) e con la compressione logaritmica il flusso
-    # cresce già quando l'attacco entra nella finestra: correzione misurata su note di prova
+    # frame i covers [i*hop, i*hop+win), and with log compression the flux already
+    # rises when the onset enters the window: correction measured on test notes
     flux = np.concatenate([np.zeros(int(round(0.82 * win / hop))), flux])
     return _normalise(flux) if normalise else flux
 
 
 def auto_offset_ms(reference: np.ndarray, other: np.ndarray, samplerate: int,
                    max_shift_s: float = 30.0) -> tuple[float, float]:
-    """Stima di quanti ms spostare ``other`` (audio) perché suoni a tempo con ``reference`` (audio).
+    """Estimate how many ms to shift ``other`` (audio) so it plays in time with ``reference`` (audio).
 
-    Ritorna (offset_ms, affidabilità 0..1). Offset positivo = ``other`` va ritardato.
+    Returns (offset_ms, confidence 0..1). A positive offset means ``other`` must be delayed.
     """
     a = onset_envelope(reference, samplerate)
     b = onset_envelope(other, samplerate)
@@ -91,7 +91,7 @@ def _pool(env: np.ndarray, factor: int) -> np.ndarray:
 
 
 def midi_envelope(events, stretch: float = 1.0, rate: int = ENV_RATE) -> np.ndarray:
-    """Inviluppo degli attacchi ricavato dalle note MIDI (tempi divisi per ``stretch``)."""
+    """Onset envelope built from the MIDI notes (times divided by ``stretch``)."""
     times = np.array([t for t, kind, _a, b in events if kind == 0 and b > 0], dtype=np.float64)
     vels = np.array([b for t, kind, _a, b in events if kind == 0 and b > 0], dtype=np.float64)
     if times.size == 0:
@@ -103,14 +103,14 @@ def midi_envelope(events, stretch: float = 1.0, rate: int = ENV_RATE) -> np.ndar
 
 
 def _xcorr_best(a: np.ndarray, b: np.ndarray, max_lag: int) -> tuple[float, float]:
-    """Ritardo (in campioni dell'inviluppo, con decimali) da dare a ``b`` per allinearlo ad ``a``.
+    """Delay (in envelope samples, fractional) to apply to ``b`` to align it with ``a``.
 
-    Ritorna (ritardo, correlazione normalizzata).
+    Returns (delay, normalised correlation).
     """
     n = a.size + b.size
     size = 1 << (n - 1).bit_length()
     corr = np.fft.irfft(np.fft.rfft(a, size) * np.conj(np.fft.rfft(b, size)), size)
-    # corr[k] = somma a[i+k]·b[i]: con k < 0 «b» suona dopo «a» e va anticipato
+    # corr[k] = sum a[i+k]*b[i]: with k < 0, "b" plays after "a" and must move earlier
     lags = np.concatenate([np.arange(-min(max_lag, b.size), 0),
                            np.arange(0, min(max_lag, a.size) + 1)])
     values = corr[lags % size]
@@ -126,20 +126,20 @@ def _xcorr_best(a: np.ndarray, b: np.ndarray, max_lag: int) -> tuple[float, floa
     return lags[best] + frac, score
 
 
-# (campioni al secondo, sfocatura in secondi): dal grossolano al preciso
+# (samples per second, blur in seconds): from coarse to fine
 _LEVELS = ((50, 0.04), (ENV_RATE, 0.012))
 
 
 def align_base_to_midi(events, base: np.ndarray, samplerate: int, find_speed: bool = False,
                        max_shift_s: float = 60.0, speed_range: tuple[float, float] = (0.8, 1.25),
                        progress=None):
-    """Allinea un audio importato alle note MIDI del piano.
+    """Align imported audio to the MIDI notes of the piano.
 
-    Ritorna (offset_ms della base, velocità del MIDI, affidabilità 0..1).
-    Offset negativo = la base va anticipata (la musica nel file parte dopo le note).
-    Con ``find_speed`` cerca anche la velocità del MIDI (1.0 = invariata, 1.05 = 5% più
-    veloce) che fa combaciare meglio le note con l'audio: serve quando il MIDI ha un
-    tempo leggermente diverso dalla registrazione.
+    Returns (offset_ms of the imported audio, MIDI speed, confidence 0..1).
+    A negative offset means the audio must move earlier (the music in the file starts
+    after the notes). With ``find_speed`` it also searches for the MIDI speed (1.0 =
+    unchanged, 1.05 = 5% faster) that best matches the audio: useful when the MIDI
+    has a slightly different tempo than the recording.
     """
     full = onset_envelope(base, samplerate, normalise=False)
     if full.size < 4 or not any(e[1] == 0 for e in events):
@@ -182,7 +182,7 @@ def align_base_to_midi(events, base: np.ndarray, samplerate: int, find_speed: bo
 
 
 def stretch_events(events, speed: float):
-    """Cambia la velocità di una take MIDI (speed > 1 = più veloce)."""
+    """Change the speed of a MIDI take (speed > 1 = faster)."""
     if speed == 1.0:
         return list(events)
     return [(t / speed, kind, a, b) for t, kind, a, b in events]

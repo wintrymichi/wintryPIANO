@@ -22,8 +22,8 @@ def test_shift():
 def test_voice_offset_aligns_voice():
     piano = np.zeros((SR, 2), np.float32)
     voice = np.zeros(SR, np.float32)
-    voice[1000] = 0.5  # impulso
-    s = MixSettings(piano_volume=1, voice_volume=1, voice_offset_ms=-10)  # anticipa di 480 campioni
+    voice[1000] = 0.5  # impulse
+    s = MixSettings(piano_volume=1, voice_volume=1, voice_offset_ms=-10)  # 480 samples earlier
     mix, _ = mix_tracks(piano, voice, SR, s)
     assert int(np.argmax(np.abs(mix[:, 0]))) == 1000 - 480
 
@@ -85,7 +85,7 @@ def test_mp3_without_ffmpeg_gives_clear_error(tmp_path, monkeypatch):
     assert "ffmpeg" in e.value.message
 
 
-@pytest.mark.skipif(find_ffmpeg() is None, reason="ffmpeg non installato")
+@pytest.mark.skipif(find_ffmpeg() is None, reason="ffmpeg not installed")
 def test_mp3_export(tmp_path):
     a = (np.sin(np.arange(SR) / 20) * 0.5).astype(np.float32)
     out = write_mp3(np.stack([a, a], 1), SR, tmp_path / "x.mp3")

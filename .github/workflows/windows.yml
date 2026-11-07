@@ -12,7 +12,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Librerie
+      - name: Libraries
         run: python -m pip install "--only-binary=:all:" -r requirements-dev.txt
       - name: Test
         env:
@@ -26,25 +26,25 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Esegui l'installer (solo il suono leggero, Python e ffmpeg da zip come su un PC senza winget)
+      - name: Run the installer (light sound only, Python and ffmpeg from zip as on a PC without winget)
         shell: pwsh
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File installer\installa.ps1 -SoloYDP -FFmpegZip -PythonNuGet
-      - name: Controlla il risultato
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File installer\install.ps1 -YdpOnly -FFmpegZip -PythonNuGet
+      - name: Check the result
         shell: pwsh
         run: |
           $lnk = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path ([Environment]::GetFolderPath("Desktop")) "Wintry Piano.lnk"))
-          Write-Host "collegamento:" $lnk.TargetPath $lnk.Arguments
-          if (-not (Test-Path $lnk.TargetPath)) { throw "il collegamento punta a un file che non esiste" }
+          Write-Host "shortcut:" $lnk.TargetPath $lnk.Arguments
+          if (-not (Test-Path $lnk.TargetPath)) { throw "the shortcut points to a file that does not exist" }
           $p = Start-Process -FilePath $lnk.TargetPath -ArgumentList ($lnk.Arguments + " --demo") -WorkingDirectory $lnk.WorkingDirectory -PassThru
           Start-Sleep -Seconds 15
-          if ($p.HasExited) { Get-Content (Join-Path $env:APPDATA "WintryPiano\wintrypiano.log") -ErrorAction SilentlyContinue; throw "il programma si e' chiuso subito (codice $($p.ExitCode))" }
+          if ($p.HasExited) { Get-Content (Join-Path $env:APPDATA "WintryPiano\wintrypiano.log") -ErrorAction SilentlyContinue; throw "the program closed right away (code $($p.ExitCode))" }
           Stop-Process -Id $p.Id -Force
           Get-Content (Join-Path $env:APPDATA "WintryPiano\wintrypiano.log")
           .venv\Scripts\python.exe -c "import sys; print(sys.version, sys.base_prefix); assert 'WintryPiano' in sys.base_prefix"
           .venv\Scripts\python.exe -c "import PySide6, mido, rtmidi, sounddevice, soundfile, tinysoundfont; print('ok')"
           $sf = Join-Path $env:APPDATA "WintryPiano\soundfonts\YDP-GrandPiano.sf2"
-          if (-not (Test-Path $sf)) { throw "soundfont non scaricato" }
-          .venv\Scripts\python.exe -c "from wintrypiano.core.export import find_ffmpeg, write_mp3; import numpy as np; print(find_ffmpeg()); print(write_mp3(np.zeros((48000, 2), np.float32), 48000, 'prova.mp3'))"
+          if (-not (Test-Path $sf)) { throw "soundfont not downloaded" }
+          .venv\Scripts\python.exe -c "from wintrypiano.core.export import find_ffmpeg, write_mp3; import numpy as np; print(find_ffmpeg()); print(write_mp3(np.zeros((48000, 2), np.float32), 48000, 'test.mp3'))"
           .venv\Scripts\python.exe -c "from wintrypiano.core.synth import LoadedFont; import os; f = LoadedFont(os.path.expandvars(r'%APPDATA%\WintryPiano\soundfonts\YDP-GrandPiano.sf2'), 48000); print(f.preset_name)"
 
   salamander:
@@ -54,9 +54,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Librerie
+      - name: Libraries
         run: python -m pip install "--only-binary=:all:" -r requirements.txt psutil
-      - name: Scarica e carica il pianoforte predefinito (Salamander)
+      - name: Download and load the default piano (Salamander)
         run: |
           python -m wintrypiano.soundfonts.download salamander --dest sf
-          python -c "import os, time, psutil; from wintrypiano.core.synth import LoadedFont, PianoSynth; from wintrypiano.core.events import NOTE_ON, NOTE_OFF; t = time.time(); f = LoadedFont('sf/SalamanderGrandPiano.sf2', 48000); s = PianoSynth(48000); s.set_font(f); a = s.render([(0, NOTE_ON, 60, 100), (1, NOTE_OFF, 60, 0)]); print('preset', f.preset_name, 'file MB', os.path.getsize('sf/SalamanderGrandPiano.sf2') // 2**20, 'RAM MB', psutil.Process().memory_info().rss // 2**20, 'caricamento s', round(time.time() - t, 1), 'picco', float(abs(a).max()))"
+          python -c "import os, time, psutil; from wintrypiano.core.synth import LoadedFont, PianoSynth; from wintrypiano.core.events import NOTE_ON, NOTE_OFF; t = time.time(); f = LoadedFont('sf/SalamanderGrandPiano.sf2', 48000); s = PianoSynth(48000); s.set_font(f); a = s.render([(0, NOTE_ON, 60, 100), (1, NOTE_OFF, 60, 0)]); print('preset', f.preset_name, 'file MB', os.path.getsize('sf/SalamanderGrandPiano.sf2') // 2**20, 'RAM MB', psutil.Process().memory_info().rss // 2**20, 'load s', round(time.time() - t, 1), 'peak', float(abs(a).max()))"

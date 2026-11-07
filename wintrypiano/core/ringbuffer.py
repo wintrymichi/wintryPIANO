@@ -1,7 +1,7 @@
-"""Buffer circolare single-producer / single-consumer per audio float32.
+"""Single-producer / single-consumer ring buffer for float32 audio.
 
-Pre-allocato: scrittura e lettura non allocano memoria, quindi può essere
-usato dentro la callback audio.
+Preallocated: reads and writes never allocate, so it can be used inside
+the audio callback.
 """
 from __future__ import annotations
 
@@ -13,8 +13,8 @@ class RingBuffer:
         self.capacity = int(capacity)
         self.channels = channels
         self._buf = np.zeros((self.capacity, channels), dtype=np.float32)
-        self._write = 0  # totale frame scritti (monotono)
-        self._read = 0   # totale frame letti (monotono)
+        self._write = 0  # total frames written (monotonic)
+        self._read = 0   # total frames read (monotonic)
         self.overflows = 0
 
     def available(self) -> int:
@@ -42,7 +42,7 @@ class RingBuffer:
         return n
 
     def read_into(self, out: np.ndarray) -> int:
-        """Legge al massimo len(out) frame in ``out``; ritorna i frame letti."""
+        """Read at most len(out) frames into ``out``; return the number of frames read."""
         n = min(out.shape[0], self.available())
         if n <= 0:
             return 0
@@ -55,7 +55,7 @@ class RingBuffer:
         return n
 
     def read_all(self) -> np.ndarray:
-        """Legge tutto il disponibile in un nuovo array (fuori dalla callback)."""
+        """Read everything available into a new array (outside the callback)."""
         out = np.empty((self.available(), self.channels), dtype=np.float32)
         self.read_into(out)
         return out

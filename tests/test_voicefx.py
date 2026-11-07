@@ -13,7 +13,7 @@ def _voice_like(seconds=4.0, seed=0):
     rng = np.random.default_rng(seed)
     t = np.arange(int(SR * seconds)) / SR
     tone = sum(np.sin(2 * np.pi * f * t) / (i + 1) for i, f in enumerate((220, 440, 660, 880, 1320)))
-    env = ((t % 1.0) < 0.6).astype(np.float32)   # 0,6 s di «canto», 0,4 s di pausa
+    env = ((t % 1.0) < 0.6).astype(np.float32)   # 0.6 s of "singing", 0.4 s of pause
     noise = rng.standard_normal(t.size) * 0.01
     return (0.2 * tone * env).astype(np.float32), noise.astype(np.float32), env
 
@@ -31,10 +31,10 @@ def test_denoise_lowers_noise_in_pauses_and_keeps_voice():
     assert y.shape == x.shape and np.isfinite(y).all()
     pauses = (env == 0)
     pauses[:SR // 10] = False
-    assert _db(y[pauses]) < _db(x[pauses]) - 10       # rumore nelle pause: almeno -10 dB
+    assert _db(y[pauses]) < _db(x[pauses]) - 10       # noise in the pauses: at least -10 dB
     sing = env == 1
-    assert abs(_db(y[sing]) - _db(x[sing])) < 2.0     # la voce resta quasi uguale
-    # forma d'onda della voce conservata
+    assert abs(_db(y[sing]) - _db(x[sing])) < 2.0     # the voice stays almost the same
+    # the voice waveform is preserved
     c = np.corrcoef(y[sing], v[sing])[0, 1]
     assert c > 0.97
 

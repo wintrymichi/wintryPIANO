@@ -1,8 +1,8 @@
-"""Prova le combinazioni di buffer e modalità WASAPI e dice qual è la latenza più bassa stabile.
+"""Tries buffer sizes and WASAPI modes and reports the lowest latency that stays stable.
 
-Uso:  python -m wintrypiano.audio.latency_test [--secondi 6] [--salva] [--anche-esclusivo]
-Con --salva scrive la combinazione migliore nelle impostazioni del programma.
-Il volume è a zero: non si sente nulla (il microfono viene solo letto).
+Usage:  python -m wintrypiano.audio.latency_test [--seconds 6] [--save] [--include-exclusive] [--experimental]
+With --save the best combination is written to the program settings.
+The volume is zero: nothing is heard (the microphone is only read).
 """
 from __future__ import annotations
 
@@ -29,33 +29,33 @@ def try_config(cfg: Config, api: str, block: int, exclusive: bool, seconds: floa
     try:
         eng.open(out, inp, block, exclusive)
     except UserError as exc:
-        return {"errore": str(exc)}
+        return {"error": str(exc)}
     eng.monitor_enabled = True
     eng.monitor_gain = 0.0
-    time.sleep(1.0)              # il margine del monitor si assesta
+    time.sleep(1.0)              # let the monitor margin settle
     eng.monitor_underruns = 0
     eng.xruns = 0
     time.sleep(seconds)
     res = {
-        "uscita": eng.output_name, "microfono": eng.input_name or "(non aperto)",
-        "tasto-suono ms": round(eng.estimated_latency_ms(), 1),
-        "voce-cuffie ms": round(eng.monitor_latency_ms(), 1) if eng.input_name else None,
-        "xrun": eng.xruns, "interruzioni monitor": eng.monitor_underruns,
-        "errori": eng.callback_errors, "microfono_errore": eng.input_error,
+        "output": eng.output_name, "microphone": eng.input_name or "(not open)",
+        "key-to-sound ms": round(eng.estimated_latency_ms(), 1),
+        "voice-to-headphones ms": round(eng.monitor_latency_ms(), 1) if eng.input_name else None,
+        "xruns": eng.xruns, "monitor dropouts": eng.monitor_underruns,
+        "callback errors": eng.callback_errors, "microphone error": eng.input_error,
     }
     eng.close()
     return res
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--secondi", type=float, default=6.0)
-    ap.add_argument("--salva", action="store_true")
-    ap.add_argument("--anche-esclusivo", action="store_true",
-                    help="prova anche WASAPI esclusivo (le altre app non suonano finché Wintry Piano è aperto)")
-    ap.add_argument("--sperimentali", action="store_true", help="prova anche i buffer da 48, 32 e 16")
+    ap = argparse.ArgumentParser(description="Find the lowest stable audio latency")
+    ap.add_argument("--seconds", type=float, default=6.0, help="duration of each test")
+    ap.add_argument("--save", action="store_true", help="save the best combination to the settings")
+    ap.add_argument("--include-exclusive", action="store_true",
+                    help="also try WASAPI exclusive mode (other apps are muted while Wintry Piano is open)")
+    ap.add_argument("--experimental", action="store_true", help="also try the 48, 32 and 16 sample buffers")
     args = ap.parse_args(argv)
-    try:  # la console o un file di log potrebbero non essere UTF-8
+    try:  # the console or a log file may not be UTF-8
         import sys
         sys.stdout.reconfigure(errors="replace")
     except Exception:
@@ -65,32 +65,32 @@ def main(argv=None) -> int:
     api = apis[0] if apis else ""
     print(f"Driver: {api}")
     sizes = (512, 256, 192, 128, 96, 64)
-    if args.sperimentali:
+    if args.experimental:
         sizes += (48, 32, 16)
     combos = [(b, False) for b in sizes if b <= 512]
-    if api == "Windows WASAPI" and args.anche_esclusivo:
+    if api == "Windows WASAPI" and args.include_exclusive:
         combos += [(b, True) for b in sizes if b <= 256]
     best = None
     for block, excl in combos:
-        r = try_config(cfg, api, block, excl, args.secondi)
-        label = f"buffer {block}{' esclusivo' if excl else ''}"
+        r = try_config(cfg, api, block, excl, args.seconds)
+        label = f"buffer {block}{' exclusive' if excl else ''}"
         print(label, r, flush=True)
-        if not r or "errore" in r or r["microfono"] == "(non aperto)":
+        if not r or "error" in r or r["microphone"] == "(not open)":
             continue
-        stable = r["xrun"] == 0 and r["errori"] == 0 and r["interruzioni monitor"] <= 2
-        if stable and (best is None or r["voce-cuffie ms"] < best[2]["voce-cuffie ms"]):
+        stable = r["xruns"] == 0 and r["callback errors"] == 0 and r["monitor dropouts"] <= 2
+        if stable and (best is None or r["voice-to-headphones ms"] < best[2]["voice-to-headphones ms"]):
             best = (block, excl, r)
     if best is None:
-        print("Nessuna combinazione stabile trovata.")
+        print("No stable combination found.")
         return 1
     block, excl, r = best
-    print(f"MIGLIORE: buffer {block}, esclusivo={excl}: tasto-suono {r['tasto-suono ms']} ms, "
-          f"voce-cuffie {r['voce-cuffie ms']} ms")
-    if args.salva:
+    print(f"BEST: buffer {block}, exclusive={excl}: key-to-sound {r['key-to-sound ms']} ms, "
+          f"voice-to-headphones {r['voice-to-headphones ms']} ms")
+    if args.save:
         cfg.block_size = block
         cfg.wasapi_exclusive = excl
         cfg.save()
-        print("Salvato nelle impostazioni.")
+        print("Saved to the settings.")
     return 0
 
 

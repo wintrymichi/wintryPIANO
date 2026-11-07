@@ -29,14 +29,14 @@ def test_install_extracts_sf2_and_writes_credits(tmp_path, sf2_path, monkeypatch
     assert "CC BY 3.0" in credits and "freepats" in credits
     assert steps[-1] == 1.0
     assert list(dest.glob("*.part")) == []
-    # già installato: nessun nuovo download
-    monkeypatch.setattr(download, "_download", lambda *a, **k: pytest.fail("non deve riscaricare"))
+    # already installed: no new download
+    monkeypatch.setattr(download, "_download", lambda *a, **k: pytest.fail("must not download again"))
     assert download.install(catalog.SALAMANDER, dest) == path
 
 
 def test_broken_archive_gives_clear_error(tmp_path, monkeypatch):
     monkeypatch.setattr(download, "_download",
-                        lambda url, dest, progress, cancel=None: dest.write_bytes(b"non un archivio"))
+                        lambda url, dest, progress, cancel=None: dest.write_bytes(b"not an archive"))
     with pytest.raises(UserError):
         download.install(catalog.YDP, tmp_path / "sf")
 

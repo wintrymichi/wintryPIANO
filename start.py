@@ -1,8 +1,8 @@
-"""Avvia Wintry Piano.
+"""Start Wintry Piano.
 
-Doppio clic su questo file (o "python avvia.py"). Se è stato usato l'installer,
-il programma parte con l'ambiente Python in .venv che contiene tutte le librerie.
-Opzioni: --demo per simulare un piano MIDI.
+Double-click this file (or run "python start.py"). If the installer was used,
+the program runs with the Python environment in .venv, which has all the libraries.
+Options: --demo to simulate a MIDI piano.
 """
 from __future__ import annotations
 
@@ -16,8 +16,8 @@ REQUIRED = ("PySide6", "mido", "rtmidi", "sounddevice", "soundfile", "numpy", "t
 
 
 def _venv_python() -> Path | None:
-    """Python dell'ambiente .venv. Usa pythonw.exe (senza console) solo se il
-    Python di base lo possiede: il pacchetto zip di Python non lo include."""
+    """Python of the .venv environment. Uses pythonw.exe (no console) only if the
+    base Python has it: the Python zip package does not include it."""
     venv = HERE / ".venv"
     scripts = venv / ("Scripts" if os.name == "nt" else "bin")
     names = ["python.exe", "python3", "python"]
@@ -42,8 +42,8 @@ def _base_has_pythonw(venv: Path) -> bool:
 
 
 def _hide_own_console() -> None:
-    """Se Windows ha aperto una console solo per noi (doppio clic), la chiude.
-    Se il programma è stato avviato da un terminale, la console resta."""
+    """If Windows opened a console just for us (double-click), close it.
+    If the program was started from a terminal, the console stays."""
     if os.name != "nt":
         return
     try:
@@ -82,13 +82,13 @@ def main() -> int:
     if not getattr(sys, "frozen", False) and not _in_venv():
         venv = _venv_python()
         if venv is not None:
-            # Riavvia con il Python dell'installer, che ha tutte le librerie.
+            # Restart with the installer's Python, which has all the libraries.
             return subprocess.call([str(venv), str(Path(__file__).resolve()), *sys.argv[1:]])
     if not getattr(sys, "frozen", False):
         missing = _missing()
         if missing:
-            _alert("Mancano alcune librerie (" + ", ".join(missing) + ").\n"
-                   "Esegui installa.bat nella cartella di Wintry Piano e poi riavvia.")
+            _alert("Some libraries are missing (" + ", ".join(missing) + ").\n"
+                   "Run install.bat in the Wintry Piano folder, then start again.")
             return 1
     _hide_own_console()
     sys.path.insert(0, str(HERE))

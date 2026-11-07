@@ -1,8 +1,8 @@
-"""Errori con un messaggio in italiano pensato per l'utente."""
+"""Errors carrying a message written for the user."""
 
 
 class UserError(Exception):
-    """Errore da mostrare all'utente così com'è (niente traceback)."""
+    """Error shown to the user as is (no traceback)."""
 
     def __init__(self, message: str, detail: str = ""):
         super().__init__(message)
@@ -14,26 +14,26 @@ class UserError(Exception):
 
 
 class TakeExistsError(UserError):
-    """Una take esiste già e non è stata chiesta la sovrascrittura."""
+    """A take already exists and overwriting was not requested."""
 
     def __init__(self, what: str):
-        super().__init__(f"Esiste già una take di {what} in questo progetto.")
+        super().__init__(f"This project already has a {what} take.")
         self.what = what
 
 
 def friendly_message(exc: BaseException) -> str:
-    """Traduce un'eccezione qualsiasi in un messaggio comprensibile."""
+    """Turn any exception into an understandable message."""
     if isinstance(exc, UserError):
         return exc.message
     if isinstance(exc, PermissionError):
-        return "Non ho i permessi per scrivere o leggere il file. Chiudi altri programmi che lo usano o scegli un'altra cartella."
+        return "Permission denied while reading or writing the file. Close other programs using it or choose another folder."
     if isinstance(exc, FileNotFoundError):
-        return "Il file o la cartella non esiste più."
+        return "The file or folder no longer exists."
     if isinstance(exc, OSError) and getattr(exc, "errno", None) == 28:
-        return "Il disco è pieno. Libera spazio e riprova."
+        return "The disk is full. Free some space and try again."
     if isinstance(exc, MemoryError):
-        return "Memoria insufficiente. Chiudi altri programmi o usa un soundfont più leggero."
+        return "Not enough memory. Close other programs or use a lighter soundfont."
     name = type(exc).__name__
     if "PortAudio" in name or "PortAudio" in str(exc):
-        return "Il dispositivo audio non risponde. Controlla che sia collegato e non usato in esclusiva da un altro programma."
-    return "Si è verificato un errore imprevisto. Dettagli salvati nel file di log."
+        return "The audio device is not responding. Check that it is connected and not used exclusively by another program."
+    return "An unexpected error occurred. Details were saved to the log file."

@@ -1,4 +1,4 @@
-"""Metronomo generato nella callback audio. Non finisce mai nell'export."""
+"""Metronome generated in the audio callback. It never ends up in the export."""
 from __future__ import annotations
 
 import numpy as np
@@ -12,7 +12,7 @@ def make_click(samplerate: int, freq: float, length_s: float = 0.035) -> np.ndar
 
 
 class Metronome:
-    """Genera click a tempo; accento sul primo movimento della battuta."""
+    """Generates clicks in time, accenting the first beat of the bar."""
 
     def __init__(self, samplerate: int, bpm: float = 100.0, beats_per_bar: int = 4):
         self.samplerate = samplerate
@@ -27,18 +27,18 @@ class Metronome:
         self.beat_frames = int(round(self.samplerate * 60.0 / self.bpm))
 
     def reset(self) -> None:
-        self.frame = 0            # posizione corrente in frame
-        self._click = None        # click in corso
+        self.frame = 0            # current position in frames
+        self._click = None        # click currently sounding
         self._click_pos = 0
 
     def beat_index(self) -> int:
         return self.frame // self.beat_frames
 
     def render_into(self, out: np.ndarray, frames: int, gain: float) -> None:
-        """Somma i click in ``out`` (frames, 2) e avanza il tempo."""
+        """Add the clicks into ``out`` (frames, 2) and advance time."""
         start = self.frame
         end = start + frames
-        # coda di un click iniziato nel blocco precedente
+        # tail of a click started in the previous block
         if self._click is not None:
             rem = self._click.shape[0] - self._click_pos
             n = min(rem, frames)
@@ -48,7 +48,7 @@ class Metronome:
             self._click_pos += n
             if self._click_pos >= self._click.shape[0]:
                 self._click = None
-        # nuovi movimenti in questo blocco
+        # new beats in this block
         first_beat = -(-start // self.beat_frames)  # ceil
         b = first_beat
         while b * self.beat_frames < end:

@@ -1,4 +1,4 @@
-"""Tema scuro invernale."""
+"""Dark winter theme."""
 
 BG = "#0b1220"
 PANEL = "#121c2e"

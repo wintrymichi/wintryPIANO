@@ -1,6 +1,6 @@
-"""Elenco dei dispositivi audio e scelta automatica dell'host API migliore.
+"""Audio device list and automatic choice of the best host API.
 
-Ordine di preferenza: ASIO (se c'è un driver), poi WASAPI, poi gli altri.
+Order of preference: ASIO (if a driver is installed), then WASAPI, then the others.
 """
 from __future__ import annotations
 
@@ -21,15 +21,15 @@ HOSTAPI_PREFERENCE = (
 )
 
 HOSTAPI_LABELS = {
-    "ASIO": "ASIO (latenza minima)",
-    "Windows WASAPI": "WASAPI (consigliato senza ASIO)",
+    "ASIO": "ASIO (lowest latency)",
+    "Windows WASAPI": "WASAPI (recommended without ASIO)",
     "Windows DirectSound": "DirectSound",
-    "MME": "MME (latenza alta)",
+    "MME": "MME (high latency)",
 }
 
 
 def sd():
-    """Importa sounddevice abilitando la DLL con supporto ASIO su Windows."""
+    """Import sounddevice, enabling the DLL with ASIO support on Windows."""
     os.environ.setdefault("SD_ENABLE_ASIO", "1")
     import sounddevice  # noqa: WPS433
 
@@ -47,10 +47,10 @@ class Device:
 
 
 def rescan() -> None:
-    """Rilegge l'elenco dei dispositivi (PortAudio va reinizializzato)."""
+    """Re-read the device list (PortAudio must be reinitialised)."""
     s = sd()
     try:
-        s._terminate()  # noqa: SLF001 - API interna ma stabile
+        s._terminate()  # noqa: SLF001 - internal but stable API
     except Exception:  # pragma: no cover
         pass
     s._initialize()  # noqa: SLF001
@@ -109,7 +109,7 @@ def find_device(name: str, hostapi: str, kind: str) -> Device | None:
 
 
 def candidate_hostapis(preferred: str) -> list[str]:
-    """Host API da provare, nell'ordine: quella scelta, poi le altre."""
+    """Host APIs to try, in order: the chosen one, then the others."""
     order = sorted_hostapis()
     if preferred and preferred != "auto" and preferred in order:
         order.remove(preferred)
