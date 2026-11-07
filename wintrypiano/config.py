@@ -10,7 +10,8 @@ from wintrypiano.paths import app_data_dir
 
 log = logging.getLogger(__name__)
 
-BUFFER_SIZES = (64, 128, 256, 512, 1024, 2048)
+EXPERIMENTAL_BUFFERS = (16, 32, 48)   # latenza minima: solo con driver e PC che li reggono
+BUFFER_SIZES = EXPERIMENTAL_BUFFERS + (64, 96, 128, 192, 256, 512, 1024, 2048)
 
 
 @dataclass

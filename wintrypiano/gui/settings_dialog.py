@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, 
 from PySide6.QtCore import Qt
 
 from wintrypiano.audio.devices import HOSTAPI_LABELS
-from wintrypiano.config import BUFFER_SIZES, Config
+from wintrypiano.config import BUFFER_SIZES, EXPERIMENTAL_BUFFERS, Config
 
 
 class SettingsDialog(QDialog):
@@ -34,7 +34,8 @@ class SettingsDialog(QDialog):
 
         self.buffer = QComboBox()
         for b in BUFFER_SIZES:
-            self.buffer.addItem(f"{b} campioni", b)
+            tag = "  (sperimentale)" if b in EXPERIMENTAL_BUFFERS else ""
+            self.buffer.addItem(f"{b} campioni{tag}", b)
         self.buffer.setCurrentIndex(max(0, self.buffer.findData(cfg.block_size)))
         self.buffer.currentIndexChanged.connect(self._update_latency)
         form.addRow("Buffer audio", self.buffer)
@@ -57,7 +58,8 @@ class SettingsDialog(QDialog):
         form.addRow("Volume metronomo", self.metro)
 
         lay.addLayout(form)
-        note = QLabel("Se senti crepitii o interruzioni, aumenta il buffer. "
+        note = QLabel("Se senti crepitii o interruzioni, aumenta il buffer. I buffer sperimentali (16-48) "
+                      "danno la latenza più bassa ma reggono solo con WASAPI esclusivo o ASIO e un PC veloce. "
                       "Se la voce è in anticipo o in ritardo rispetto al piano, regola la correzione manuale.")
         note.setWordWrap(True)
         note.setObjectName("hint")

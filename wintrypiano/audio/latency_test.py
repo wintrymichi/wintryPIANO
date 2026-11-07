@@ -53,6 +53,7 @@ def main(argv=None) -> int:
     ap.add_argument("--salva", action="store_true")
     ap.add_argument("--anche-esclusivo", action="store_true",
                     help="prova anche WASAPI esclusivo (le altre app non suonano finché Wintry Piano è aperto)")
+    ap.add_argument("--sperimentali", action="store_true", help="prova anche i buffer da 48, 32 e 16")
     args = ap.parse_args(argv)
     try:  # la console o un file di log potrebbero non essere UTF-8
         import sys
@@ -63,9 +64,12 @@ def main(argv=None) -> int:
     apis = devices.candidate_hostapis(cfg.host_api)
     api = apis[0] if apis else ""
     print(f"Driver: {api}")
-    combos = [(b, False) for b in (512, 256, 128, 64)]
+    sizes = (512, 256, 192, 128, 96, 64)
+    if args.sperimentali:
+        sizes += (48, 32, 16)
+    combos = [(b, False) for b in sizes if b <= 512]
     if api == "Windows WASAPI" and args.anche_esclusivo:
-        combos += [(b, True) for b in (256, 128, 64)]
+        combos += [(b, True) for b in sizes if b <= 256]
     best = None
     for block, excl in combos:
         r = try_config(cfg, api, block, excl, args.secondi)
