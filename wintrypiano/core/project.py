@@ -42,9 +42,7 @@ class ProjectSettings:
     piano_reverb: bool = False
     voice_volume: float = 0.9
     voice_reverb: bool = False
-    voice_enhance: bool = True          # EQ e de-esser (solo riascolto ed export)
-    voice_compress: bool = True         # compressore (solo riascolto ed export)
-    voice_compress_amount: float = 0.5
+    voice_enhance: bool = True          # EQ, de-esser e compressore (solo riascolto ed export)
     voice_denoise: bool = True          # riduzione del rumore (solo riascolto ed export)
     voice_denoise_amount: float = 0.6
     voice_auto_offset_ms: float = 0.0
@@ -241,9 +239,7 @@ class Project:
 
         s = self.settings
         return VoiceFx(enhance=s.voice_enhance, denoise=s.voice_denoise,
-                       denoise_amount=max(0.0, min(1.0, s.voice_denoise_amount)),
-                       compress=s.voice_compress,
-                       compress_amount=max(0.0, min(1.0, s.voice_compress_amount)))
+                       denoise_amount=max(0.0, min(1.0, s.voice_denoise_amount)))
 
     def mix_settings(self, manual_offset_ms: float = 0.0) -> MixSettings:
         s = self.settings

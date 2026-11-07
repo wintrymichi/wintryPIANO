@@ -15,11 +15,9 @@ HOP = N_FFT // 4
 
 @dataclass(frozen=True)
 class VoiceFx:
-    enhance: bool = True         # EQ e de-esser
-    denoise: bool = True         # riduzione del rumore di fondo
+    enhance: bool = True        # EQ, de-esser e compressore
+    denoise: bool = True        # riduzione del rumore di fondo
     denoise_amount: float = 0.6  # 0..1
-    compress: bool = True        # compressore
-    compress_amount: float = 0.5  # 0..1: da leggero (1,5:1) a forte (6:1)
 
 
 # ---------------------------------------------------------------- STFT
@@ -136,8 +134,8 @@ def _rms_env(x: np.ndarray, sr: int, step_s: float = 0.005) -> tuple[np.ndarray,
 
 
 def compress(x: np.ndarray, sr: int, ratio: float = 3.0, attack_s: float = 0.008,
-             release_s: float = 0.12, knee_db: float = 6.0, depth_db: float = 12.0) -> np.ndarray:
-    """Compressore con soglia automatica (``depth_db`` sotto il livello forte della voce)."""
+             release_s: float = 0.12, knee_db: float = 6.0) -> np.ndarray:
+    """Compressore con soglia automatica (12 dB sotto il livello forte della voce)."""
     if x.size == 0:
         return x
     env, step = _rms_env(x, sr)
@@ -146,7 +144,7 @@ def compress(x: np.ndarray, sr: int, ratio: float = 3.0, attack_s: float = 0.008
     if active.size == 0:
         return x
     loud = np.percentile(active, 90)
-    threshold = loud - depth_db
+    threshold = loud - 12.0
     # riduzione statica con ginocchio morbido
     over = env_db - threshold
     red = np.where(over <= -knee_db / 2, 0.0,
@@ -172,11 +170,10 @@ def compress(x: np.ndarray, sr: int, ratio: float = 3.0, attack_s: float = 0.008
 
 def process_voice(voice: np.ndarray, sr: int, fx: VoiceFx) -> np.ndarray:
     """Applica gli effetti a una voce mono float32. Ritorna un nuovo array della stessa lunghezza."""
-    if voice is None or voice.size == 0 or not (fx.enhance or fx.denoise or fx.compress):
+    if voice is None or voice.size == 0 or not (fx.enhance or fx.denoise):
         return voice
     x = np.nan_to_num(voice.astype(np.float32).reshape(-1))
-    y = _spectral(x, sr, fx) if (fx.enhance or fx.denoise) else x
-    if fx.compress:
-        a = max(0.0, min(1.0, fx.compress_amount))
-        y = compress(y, sr, ratio=1.5 + 4.5 * a, depth_db=6.0 + 12.0 * a)
+    y = _spectral(x, sr, fx)
+    if fx.enhance:
+        y = compress(y, sr)
     return y.astype(np.float32)
