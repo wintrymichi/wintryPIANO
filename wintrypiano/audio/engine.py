@@ -53,6 +53,9 @@ class AudioEngine:
         self.input_error = ""
         self.output_latency = 0.0
         self.input_latency = 0.0
+        self.clock = None        # solo per i test: sostituisce l'orologio dello stream
+        self.monitor_extra = 0   # margine (campioni) del monitor, cresce solo se servono
+        self.monitor_underruns = 0
         self._setup(samplerate)
 
     # ------------------------------------------------------------ allocazioni
@@ -74,6 +77,8 @@ class AudioEngine:
         self._capture = False
         self._dac_time = None
         self._adc_time = None
+        self._mon_had_data = False
+        self.monitor_extra = 0
 
     def _reset_counters(self) -> None:
         self.callback_count = 0
@@ -95,6 +100,7 @@ class AudioEngine:
         sd = devmod.sd()
         self.close()
         self._closing = False
+        self.monitor_extra = 0
         self.blocksize = int(blocksize)
         self.input_error = ""
         rates = [samplerate or self.samplerate, int(output.default_samplerate)]
@@ -176,14 +182,33 @@ class AudioEngine:
         if not self._closing:
             self.stream_finished = True
 
+    def monitor_latency_ms(self) -> float:
+        """Latenza stimata voce → cuffie quando ascolti il microfono."""
+        b = self.blocksize / self.samplerate
+        return (self.input_latency + self.output_latency + b + self.monitor_extra / self.samplerate) * 1000.0
+
     def estimated_latency_ms(self) -> float:
         """Latenza stimata tasto → suono: un buffer + latenza dichiarata dall'uscita."""
         base = self.blocksize / self.samplerate
         return (base + (self.output_latency or base)) * 1000.0
 
     # -------------------------------------------------------------- comandi
+    def now(self) -> float:
+        """Ora sull'orologio dello stream audio (lo stesso dei tempi della callback), 0 se non c'è."""
+        if self.clock is not None:
+            return self.clock()
+        stream = self._duplex or self._out
+        if stream is None:
+            return 0.0
+        try:
+            return float(stream.time)
+        except Exception:
+            return 0.0
+
     def note_event(self, kind: int, a: int, b: int) -> None:
-        self.midi_queue.append((kind, a, b))
+        # salvo l'istante in cui è arrivata la nota: in registrazione la metto nel punto
+        # in cui l'hai suonata davvero, non in quello in cui la callback l'ha letta
+        self.midi_queue.append((kind, a, b, self.now()))
 
     def start_piano_recording(self, bpm: float, count_in_beats: int, with_voice: bool = False,
                               backing: np.ndarray | None = None) -> None:
@@ -342,14 +367,27 @@ class AudioEngine:
                     mode == COUNT_IN
                     and self._session_frame >= self._rec_offset - self.metronome.beat_frames // 2)
                 if recording:
-                    t = max(0, self._session_frame - self._rec_offset) / self.samplerate
+                    sr = self.samplerate
+                    base = self._session_frame - self._rec_offset
+                    fallback = -self.output_latency * sr
+                    max_back = -0.5 * sr
                     while q:
-                        kind, a, b = q.popleft()
+                        kind, a, b, when = q.popleft()
                         synth.handle(kind, a, b)
+                        # Linea del tempo = quando il suono esce dalle cuffie (come per la voce).
+                        # La nota è arrivata a «when»; questo blocco uscirà a «dac_time»:
+                        # la differenza è la latenza dell'uscita più l'attesa della callback.
+                        if when and dac_time:
+                            dt = (when - dac_time) * sr
+                            if not max_back <= dt <= 0:
+                                dt = fallback
+                        else:
+                            dt = fallback
+                        t = max(0.0, base + dt) / sr
                         self.rec_queue.append((t, kind, a, b))
                 else:
                     while q:
-                        kind, a, b = q.popleft()
+                        kind, a, b, _when = q.popleft()
                         synth.handle(kind, a, b)
                 piano = synth.generate(frames)
                 if self.piano_reverb:
@@ -393,11 +431,18 @@ class AudioEngine:
         # 4) ascolto del microfono in cuffia
         if self.monitor_enabled:
             ring = self.monitor_ring
-            excess = ring.available() - frames * 3
-            if excess > 0:  # evita che la latenza cresca
+            # latenza minima: tengo al massimo un blocco (più un margine che cresce
+            # solo se l'ingresso arriva in ritardo e il suono si interromperebbe)
+            excess = ring.available() - frames - self.monitor_extra
+            if excess > 0:
                 ring._read += excess  # noqa: SLF001
             m = self._mono[:frames]
             got = ring.read_into(m)
+            if 0 < got < frames or (got == 0 and self._mon_had_data):
+                self.monitor_underruns += 1
+                if self.monitor_extra < 2 * frames:
+                    self.monitor_extra += max(16, frames // 4)
+            self._mon_had_data = got > 0
             if got:
                 out[:got, 0] += m[:got, 0] * self.monitor_gain
                 out[:got, 1] += m[:got, 0] * self.monitor_gain

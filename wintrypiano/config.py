@@ -25,6 +25,7 @@ class Config:
     last_project: str = ""
     voice_manual_offset_ms: float = 0.0
     metronome_volume: float = 0.6
+    monitor: bool = False          # ascolto del microfono in cuffia
     recent_projects: list = field(default_factory=list)
     version: int = 2
 

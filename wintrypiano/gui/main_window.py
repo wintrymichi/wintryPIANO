@@ -245,6 +245,10 @@ class MainWindow(QMainWindow):
         self.piano_meter = LevelMeter()
         self.piano_meter.setVisible(False)
         lay.addWidget(self.piano_meter)
+        self.cb_monitor_piano = QCheckBox("Ascoltati in cuffia mentre canti (solo con le cuffie)")
+        self.cb_monitor_piano.setVisible(False)
+        self.cb_monitor_piano.toggled.connect(self._set_monitor)
+        lay.addWidget(self.cb_monitor_piano)
         lay.addStretch(1)
         return w
 
@@ -282,9 +286,13 @@ class MainWindow(QMainWindow):
         self.clip_label.setObjectName("warn")
         lay.addWidget(self.clip_label)
         self.cb_monitor = QCheckBox("Ascolta il microfono in cuffia (attiva solo con le cuffie, evita i fischi)")
-        self.cb_monitor.setChecked(False)
+        self.cb_monitor.setChecked(self.cfg.monitor)
+        self.cb_monitor_piano.setChecked(self.cfg.monitor)
         self.cb_monitor.toggled.connect(self._set_monitor)
         lay.addWidget(self.cb_monitor)
+        self.monitor_hint = QLabel("")
+        self.monitor_hint.setObjectName("hint")
+        lay.addWidget(self.monitor_hint)
         lay.addStretch(1)
         return w
 
@@ -581,6 +589,18 @@ class MainWindow(QMainWindow):
         self.status_devices.setText(f"MIDI: {midi}   ·   Uscita: {out}   ·   Microfono: {mic}")
         self.latency_label.setText(f"Latenza stimata: {e.estimated_latency_ms():.0f} ms · buffer {e.blocksize}"
                                    if e.is_open else "Audio non attivo")
+        self._update_monitor_hint()
+
+    def _update_monitor_hint(self) -> None:
+        e = self.engine
+        self._monitor_extra_seen = e.monitor_extra
+        if e.is_open and e.input_name:
+            text = (f"Ritardo della voce in cuffia: circa {e.monitor_latency_ms():.0f} ms. "
+                    "Per abbassarlo: buffer più piccolo o WASAPI esclusivo nelle Impostazioni.")
+        else:
+            text = ""
+        self.monitor_hint.setText(text)
+        self.cb_monitor_piano.setToolTip(text)
 
     # ======================================================== soundfont
     def choose_soundfont(self, first_run: bool) -> None:
@@ -767,6 +787,7 @@ class MainWindow(QMainWindow):
 
     def _set_sing_along(self, on: bool) -> None:
         self.piano_meter.setVisible(on)
+        self.cb_monitor_piano.setVisible(on)
         if self.project:
             self.project.settings.sing_along = on
 
@@ -775,8 +796,15 @@ class MainWindow(QMainWindow):
             self.project.settings.count_in = on
 
     def _set_monitor(self, on: bool) -> None:
+        for c in (self.cb_monitor, self.cb_monitor_piano):
+            c.blockSignals(True)
+            c.setChecked(on)
+            c.blockSignals(False)
         self.engine.monitor_ring.clear()
         self.engine.monitor_enabled = on
+        if self.cfg.monitor != on:
+            self.cfg.monitor = on
+            self.cfg.save()
 
     # ===================================================== registrazione piano
     def _recording(self) -> bool:
@@ -865,9 +893,9 @@ class MainWindow(QMainWindow):
             self._piano_cache = None
             saved.append(f"piano ({end_t:.1f} s)")
             if getattr(self, "_rec_with_base", False):
-                # la base è partita insieme alla take; la sento con il ritardo dell'uscita audio,
-                # quindi le note arrivano in ritardo di altrettanto: sposto la base per compensare
-                self.project.settings.base_offset_ms = round(self.engine.output_latency * 1000.0, 1)
+                # la base è partita insieme alla take e le note sono già registrate
+                # nell'istante in cui le hai sentite: sono a tempo senza spostamenti
+                self.project.settings.base_offset_ms = 0.0
                 self.project.save()
         journal.close(delete=True)
         if vjournal is not None:
@@ -1310,6 +1338,8 @@ class MainWindow(QMainWindow):
             self.mix_time.setText(f"▶ {fmt_time(pos)} / {fmt_time(total)}")
         else:
             self.mix_time.setText("")
+        if e.monitor_extra != getattr(self, "_monitor_extra_seen", 0):
+            self._update_monitor_hint()
         peak, clip = e.take_mic_level()
         self.meter.set_level(peak, clip)
         if self.piano_meter.isVisible():

@@ -227,3 +227,40 @@ def test_piano_only_recording_does_not_capture_voice(synth):
         e._process_input(np.full((B, 1), 0.2, np.float32), B, 0)
         e._process_output(out, B, 0)
     assert e.voice_ring.available() == 0
+
+
+def test_notes_recorded_when_played_not_when_read(synth):
+    """La nota va registrata nell'istante in cui è stata suonata, sulla linea del tempo
+    delle cuffie: la latenza dell'uscita e l'attesa della callback vengono tolte."""
+    e = AudioEngine(synth, SR)
+    clock = {"t": 100.0}
+    e.clock = lambda: clock["t"]
+    e.start_piano_recording(bpm=120, count_in_beats=0)
+    out = np.zeros((B, 2), np.float32)
+    out_latency = 0.025
+    # 10 blocchi: ogni blocco viene calcolato B campioni prima e suona dopo out_latency
+    for i in range(10):
+        block_time = 100.0 + i * B / SR
+        if i == 6:
+            clock["t"] = block_time - 0.003          # tasto premuto 3 ms prima della callback
+            e.note_event(NOTE_ON, 60, 100)
+        e._process_output(out, B, block_time + out_latency)
+    t = e.rec_queue[0][0]
+    played = 100.0 + 6 * B / SR - 0.003
+    # la linea del tempo parte dal primo blocco, che è uscito a 100.0 + out_latency
+    assert abs(t - (played - (100.0 + out_latency))) < 1e-6
+
+
+def test_monitor_latency_stays_low(synth):
+    e = AudioEngine(synth, SR)
+    e.monitor_enabled = True
+    out = np.zeros((B, 2), np.float32)
+    mic = np.full((B, 1), 0.1, np.float32)
+    for _ in range(20):          # l'ingresso arriva a raffiche: 3 blocchi per volta
+        for _ in range(3):
+            e._process_input(mic, B, 0)
+        for _ in range(3):
+            e._process_output(out, B, 0)
+    assert e.monitor_ring.available() <= B + e.monitor_extra
+    assert e.monitor_extra <= 2 * B
+    assert np.allclose(out[:, 0], 0.1)
