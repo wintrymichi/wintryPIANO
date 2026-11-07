@@ -68,6 +68,7 @@ class AudioEngine:
         self.monitor_ring = RingBuffer(sr // 2, 1)
         self._scratch = np.zeros((MAX_BLOCK, 2), dtype=np.float32)
         self._mono = np.zeros((MAX_BLOCK, 1), dtype=np.float32)
+        self._in_mono = np.zeros((MAX_BLOCK, 1), dtype=np.float32)
         self._abs = np.zeros(MAX_BLOCK, dtype=np.float32)
         self._reset_counters()
         self.mode = IDLE
@@ -145,9 +146,12 @@ class AudioEngine:
             if input_dev.hostapi == "Windows WASAPI":
                 in_extra = sd.WasapiSettings(exclusive=exclusive, auto_convert=not exclusive)
             try:
+                # Alcuni microfoni USB in WASAPI esclusivo danno segnale solo se aperti
+                # col loro numero di canali (spesso 2): apro così e poi faccio la media.
+                in_ch = max(1, min(2, int(getattr(input_dev, "max_input", 1) or 1)))
                 self._in = sd.InputStream(
                     samplerate=self.samplerate, blocksize=self.blocksize, device=input_dev.index,
-                    channels=1, dtype="float32", latency="low", callback=self._in_cb,
+                    channels=in_ch, dtype="float32", latency="low", callback=self._in_cb,
                     extra_settings=in_extra)
                 self._in.start()
                 self.input_latency = self._in.latency
@@ -325,7 +329,12 @@ class AudioEngine:
             self.last_error = exc
 
     def _process_input(self, indata, frames, adc_time) -> None:
-        mono = indata[:, :1]
+        if indata.shape[1] > 1:
+            mono = self._in_mono[:frames]
+            np.add(indata[:, :1], indata[:, 1:2], out=mono)
+            mono *= 0.5
+        else:
+            mono = indata[:, :1]
         a = self._abs[:frames]
         np.abs(mono[:, 0], out=a)
         peak = float(a.max()) if frames else 0.0

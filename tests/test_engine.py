@@ -264,3 +264,13 @@ def test_monitor_latency_stays_low(synth):
     assert e.monitor_ring.available() <= B + e.monitor_extra
     assert e.monitor_extra <= max(2 * B, int(0.012 * SR)) + B
     assert np.allclose(out[:, 0], 0.1)
+
+
+def test_stereo_microphone_is_mixed_to_mono(synth):
+    e = AudioEngine(synth, SR)
+    e.monitor_enabled = True
+    st = np.zeros((B, 2), np.float32)
+    st[:, 0] = 0.4
+    e._process_input(st, B, 0)
+    peak, _ = e.take_mic_level()
+    assert abs(peak - 0.2) < 1e-6 and e.monitor_ring.available() == B
