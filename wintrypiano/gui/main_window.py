@@ -321,8 +321,8 @@ class MainWindow(QMainWindow):
         r2b = QHBoxLayout()
         r2b.addSpacing(48)
         self.cb_voice_enhance = QCheckBox("Voce naturale")
-        self.cb_voice_enhance.setToolTip("Toglie i bassi inutili e il «fango», aggiunge presenza e aria, "
-                                         "abbassa le «s» troppo forti e comprime: la voce è più viva e uniforme")
+        self.cb_voice_enhance.setToolTip("Toglie i bassi inutili e il «fango», aggiunge presenza e aria "
+                                         "e abbassa le «s» troppo forti")
         self.cb_voice_enhance.toggled.connect(self._set_voice_enhance)
         r2b.addWidget(self.cb_voice_enhance)
         self.cb_voice_denoise = QCheckBox("Riduci il rumore")
@@ -335,6 +335,19 @@ class MainWindow(QMainWindow):
         r2b.addWidget(self.sl_denoise)
         r2b.addStretch(1)
         lay.addLayout(r2b)
+        r2c = QHBoxLayout()
+        r2c.addSpacing(48)
+        self.cb_voice_compress = QCheckBox("Compressore")
+        self.cb_voice_compress.setToolTip("Avvicina le parti piano e forti: la voce resta sempre presente nel mix")
+        self.cb_voice_compress.toggled.connect(self._set_voice_compress)
+        r2c.addWidget(self.cb_voice_compress)
+        r2c.addWidget(QLabel("intensità"))
+        self.sl_compress = self._slider(0.5, self._set_compress_amount)
+        self.sl_compress.setMaximumWidth(160)
+        self.sl_compress.setToolTip("Da leggero (1,5:1) a forte (6:1); la soglia si regola da sola sulla tua voce")
+        r2c.addWidget(self.sl_compress)
+        r2c.addStretch(1)
+        lay.addLayout(r2c)
         fx_hint = QLabel("Gli effetti valgono nel riascolto e nell'export: la registrazione originale non cambia.")
         fx_hint.setObjectName("hint")
         lay.addWidget(fx_hint)
@@ -656,7 +669,8 @@ class MainWindow(QMainWindow):
         s = proj.settings
         for widget, value in ((self.sl_piano, s.piano_volume), (self.sl_mix_piano, s.piano_volume),
                               (self.sl_voice, s.voice_volume), (self.sl_base, s.base_volume),
-                              (self.sl_denoise, s.voice_denoise_amount)):
+                              (self.sl_denoise, s.voice_denoise_amount),
+                              (self.sl_compress, s.voice_compress_amount)):
             widget.blockSignals(True)
             widget.setValue(int(value * 100))
             widget.blockSignals(False)
@@ -664,7 +678,8 @@ class MainWindow(QMainWindow):
                               (self.cb_voice_reverb, s.voice_reverb), (self.cb_metro, s.metronome),
                               (self.cb_countin, s.count_in), (self.cb_sing, s.sing_along),
                               (self.cb_base_rec, s.base_during_rec),
-                              (self.cb_voice_enhance, s.voice_enhance), (self.cb_voice_denoise, s.voice_denoise)):
+                              (self.cb_voice_enhance, s.voice_enhance), (self.cb_voice_denoise, s.voice_denoise),
+                              (self.cb_voice_compress, s.voice_compress)):
             widget.blockSignals(True)
             widget.setChecked(value)
             widget.blockSignals(False)
@@ -676,6 +691,7 @@ class MainWindow(QMainWindow):
         self.cfg.save()
         self.project_label.setText(f"Progetto: {s.name}")
         self.sl_denoise.setEnabled(s.voice_denoise)
+        self.sl_compress.setEnabled(s.voice_compress)
         self._update_base_ui()
         self._check_recovery()
 
@@ -796,6 +812,15 @@ class MainWindow(QMainWindow):
     def _set_voice_enhance(self, on: bool) -> None:
         if self.project:
             self.project.settings.voice_enhance = on
+
+    def _set_voice_compress(self, on: bool) -> None:
+        self.sl_compress.setEnabled(on)
+        if self.project:
+            self.project.settings.voice_compress = on
+
+    def _set_compress_amount(self, v: float) -> None:
+        if self.project:
+            self.project.settings.voice_compress_amount = v
 
     def _set_voice_denoise(self, on: bool) -> None:
         self.sl_denoise.setEnabled(on)

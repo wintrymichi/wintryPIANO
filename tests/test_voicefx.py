@@ -21,13 +21,13 @@ def _voice_like(seconds=4.0, seed=0):
 def test_disabled_is_identity():
     v, n, _ = _voice_like(1)
     x = v + n
-    assert process_voice(x, SR, VoiceFx(enhance=False, denoise=False)) is x
+    assert process_voice(x, SR, VoiceFx(enhance=False, denoise=False, compress=False)) is x
 
 
 def test_denoise_lowers_noise_in_pauses_and_keeps_voice():
     v, n, env = _voice_like()
     x = v + n
-    y = process_voice(x, SR, VoiceFx(enhance=False, denoise=True, denoise_amount=0.7))
+    y = process_voice(x, SR, VoiceFx(enhance=False, denoise=True, denoise_amount=0.7, compress=False))
     assert y.shape == x.shape and np.isfinite(y).all()
     pauses = (env == 0)
     pauses[:SR // 10] = False
@@ -53,3 +53,15 @@ def test_full_chain_is_safe_on_silence_and_short():
     for x in (np.zeros(SR, np.float32), np.zeros(100, np.float32), np.ones(10, np.float32) * 0.1):
         y = process_voice(x, SR, VoiceFx())
         assert y.shape == x.shape and np.isfinite(y).all()
+
+
+def test_compressor_amount_changes_strength():
+    t = np.arange(SR * 2) / SR
+    tone = np.sin(2 * np.pi * 300 * t).astype(np.float32)
+    x = np.concatenate([tone * 0.05, tone * 0.5])
+
+    def spread(amount):
+        y = process_voice(x, SR, VoiceFx(enhance=False, denoise=False, compress=True, compress_amount=amount))
+        return _db(y[SR * 2 + SR // 2:]) - _db(y[SR // 2:SR * 2])
+
+    assert spread(1.0) < spread(0.0) - 3
