@@ -318,6 +318,26 @@ class MainWindow(QMainWindow):
         self.cb_voice_reverb.toggled.connect(self._set_voice_reverb)
         r2.addWidget(self.cb_voice_reverb)
         lay.addLayout(r2)
+        r2b = QHBoxLayout()
+        r2b.addSpacing(48)
+        self.cb_voice_enhance = QCheckBox("Voce naturale")
+        self.cb_voice_enhance.setToolTip("Toglie i bassi inutili e il «fango», aggiunge presenza e aria, "
+                                         "abbassa le «s» troppo forti e comprime: la voce è più viva e uniforme")
+        self.cb_voice_enhance.toggled.connect(self._set_voice_enhance)
+        r2b.addWidget(self.cb_voice_enhance)
+        self.cb_voice_denoise = QCheckBox("Riduci il rumore")
+        self.cb_voice_denoise.setToolTip("Toglie il fruscio di fondo (ventole, stanza) dalla voce")
+        self.cb_voice_denoise.toggled.connect(self._set_voice_denoise)
+        r2b.addWidget(self.cb_voice_denoise)
+        r2b.addWidget(QLabel("intensità"))
+        self.sl_denoise = self._slider(0.6, self._set_denoise_amount)
+        self.sl_denoise.setMaximumWidth(160)
+        r2b.addWidget(self.sl_denoise)
+        r2b.addStretch(1)
+        lay.addLayout(r2b)
+        fx_hint = QLabel("Gli effetti valgono nel riascolto e nell'export: la registrazione originale non cambia.")
+        fx_hint.setObjectName("hint")
+        lay.addWidget(fx_hint)
         self.base_row = QWidget()
         r3 = QHBoxLayout(self.base_row)
         r3.setContentsMargins(0, 0, 0, 0)
@@ -635,14 +655,16 @@ class MainWindow(QMainWindow):
         self._base_cache = None
         s = proj.settings
         for widget, value in ((self.sl_piano, s.piano_volume), (self.sl_mix_piano, s.piano_volume),
-                              (self.sl_voice, s.voice_volume), (self.sl_base, s.base_volume)):
+                              (self.sl_voice, s.voice_volume), (self.sl_base, s.base_volume),
+                              (self.sl_denoise, s.voice_denoise_amount)):
             widget.blockSignals(True)
             widget.setValue(int(value * 100))
             widget.blockSignals(False)
         for widget, value in ((self.cb_piano_reverb, s.piano_reverb), (self.cb_mix_piano_reverb, s.piano_reverb),
                               (self.cb_voice_reverb, s.voice_reverb), (self.cb_metro, s.metronome),
                               (self.cb_countin, s.count_in), (self.cb_sing, s.sing_along),
-                              (self.cb_base_rec, s.base_during_rec)):
+                              (self.cb_base_rec, s.base_during_rec),
+                              (self.cb_voice_enhance, s.voice_enhance), (self.cb_voice_denoise, s.voice_denoise)):
             widget.blockSignals(True)
             widget.setChecked(value)
             widget.blockSignals(False)
@@ -653,6 +675,7 @@ class MainWindow(QMainWindow):
         self.cfg.last_project = str(proj.folder)
         self.cfg.save()
         self.project_label.setText(f"Progetto: {s.name}")
+        self.sl_denoise.setEnabled(s.voice_denoise)
         self._update_base_ui()
         self._check_recovery()
 
@@ -769,6 +792,19 @@ class MainWindow(QMainWindow):
     def _set_voice_volume(self, v: float) -> None:
         if self.project:
             self.project.settings.voice_volume = v
+
+    def _set_voice_enhance(self, on: bool) -> None:
+        if self.project:
+            self.project.settings.voice_enhance = on
+
+    def _set_voice_denoise(self, on: bool) -> None:
+        self.sl_denoise.setEnabled(on)
+        if self.project:
+            self.project.settings.voice_denoise = on
+
+    def _set_denoise_amount(self, v: float) -> None:
+        if self.project:
+            self.project.settings.voice_denoise_amount = v
 
     def _set_voice_reverb(self, on: bool) -> None:
         if self.project:
@@ -1043,10 +1079,23 @@ class MainWindow(QMainWindow):
         mix, _gain = mix_tracks(piano, voice, sr, proj.mix_settings(self.cfg.voice_manual_offset_ms), base)
         return mix
 
-    def _voice_audio(self):
-        voice, vsr = self.project.load_voice_take()
-        if voice is not None:
-            voice = resample(voice, vsr, self.synth.samplerate)
+    def _voice_audio(self, effects: bool = True):
+        """Voce al samplerate attuale; con ``effects`` passa per gli effetti (con cache)."""
+        proj = self.project
+        if not proj.has_voice():
+            return None
+        sr = self.synth.samplerate
+        fx = proj.voice_fx() if effects else None
+        key = (str(proj.voice_path), proj.voice_path.stat().st_mtime_ns, sr, fx)
+        cache = getattr(self, "_voice_cache", None)
+        if cache is not None and cache[0] == key:
+            return cache[1]
+        voice, vsr = proj.load_voice_take()
+        voice = resample(voice, vsr, sr)
+        if fx is not None:
+            from wintrypiano.core.voicefx import process_voice
+            voice = process_voice(voice, sr, fx)
+        self._voice_cache = (key, voice)
         return voice
 
     def _base_audio(self) -> np.ndarray:

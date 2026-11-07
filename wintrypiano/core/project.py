@@ -42,6 +42,9 @@ class ProjectSettings:
     piano_reverb: bool = False
     voice_volume: float = 0.9
     voice_reverb: bool = False
+    voice_enhance: bool = True          # EQ, de-esser e compressore (solo riascolto ed export)
+    voice_denoise: bool = True          # riduzione del rumore (solo riascolto ed export)
+    voice_denoise_amount: float = 0.6
     voice_auto_offset_ms: float = 0.0
     voice_user_offset_ms: float = 0.0   # correzione fatta a mano in «Sincronizza tracce»
     base_name: str = ""                  # nome del file audio importato
@@ -230,6 +233,13 @@ class Project:
         self.settings.bpm = round(self.settings.bpm * speed, 2)
         save_midi(events, self.piano_path, bpm=self.settings.bpm)
         self.save()
+
+    def voice_fx(self):
+        from wintrypiano.core.voicefx import VoiceFx
+
+        s = self.settings
+        return VoiceFx(enhance=s.voice_enhance, denoise=s.voice_denoise,
+                       denoise_amount=max(0.0, min(1.0, s.voice_denoise_amount)))
 
     def mix_settings(self, manual_offset_ms: float = 0.0) -> MixSettings:
         s = self.settings
